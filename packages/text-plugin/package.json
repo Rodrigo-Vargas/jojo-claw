@@ -1,0 +1,7 @@
+{
+  "name": "@jojo-claw/text-plugin",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": { "@jojo-claw/core": "*" }
+}

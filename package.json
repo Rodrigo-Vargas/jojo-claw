@@ -1,0 +1,23 @@
+{
+  "name": "jojo-claw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=@jojo-claw/web",
+    "dev:api": "npm run dev --workspace=@jojo-claw/api",
+    "dev:web": "npm run dev --workspace=@jojo-claw/web",
+    "start": "npm run start --workspace=@jojo-claw/api",
+    "build": "tsc && npm run build --workspace=@jojo-claw/web",
+    "test": "tsx --test apps/api/test/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

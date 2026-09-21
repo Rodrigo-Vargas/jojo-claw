@@ -1,0 +1,7 @@
+{
+  "name": "@jojo-claw/ollama",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": { "@jojo-claw/core": "*" }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@jojo-claw/core",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts"
+}
