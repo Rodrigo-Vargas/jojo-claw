@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
 
-interface ManagedSecret { pluginId: string; id: string; name: string; description?: string; configured: boolean }
+interface ManagedSecret {
+  pluginId: string
+  id: string
+  name: string
+  description?: string
+  configured: boolean
+}
 
 export default function SecretsPage() {
   const [secrets, setSecrets] = useState<ManagedSecret[]>([])
@@ -27,7 +33,11 @@ export default function SecretsPage() {
       if (!response.ok) throw new Error(await messageFrom(response))
       await load()
       setValues((current) => ({ ...current, [keyOf(secret)]: '' }))
-      setRevealed((current) => { const next = { ...current }; delete next[keyOf(secret)]; return next })
+      setRevealed((current) => {
+        const next = { ...current }
+        delete next[keyOf(secret)]
+        return next
+      })
       setMessage(value ? `${secret.name} saved.` : `${secret.name} cleared.`)
     } catch (cause) { setError(messageOf(cause)) }
   }

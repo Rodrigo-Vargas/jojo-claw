@@ -23,6 +23,31 @@ export interface LlmProvider {
   generate(input: GenerateTextInput): Promise<GenerateTextResult>
 }
 
+export interface EmailAssistantConnection {
+  accessToken: string
+  refreshToken: string
+  expiryDate: number
+  grantedScopes: string
+  email: string | null
+}
+
+export interface EmailAssistantOAuthTransaction {
+  codeVerifier: string
+  createdAt: number
+}
+
+/** Persistence operations owned and implemented by the database platform plugin. */
+export interface DatabaseOperations {
+  emailAssistant: {
+    getConnection(): EmailAssistantConnection | undefined
+    saveConnection(connection: EmailAssistantConnection): void
+    deleteConnection(): void
+    deleteExpiredOAuthTransactions(before: number): void
+    createOAuthTransaction(state: string, transaction: EmailAssistantOAuthTransaction): void
+    consumeOAuthTransaction(state: string): EmailAssistantOAuthTransaction | undefined
+  }
+}
+
 /** A secret that a plugin needs the local user to provide. */
 export interface SecretDefinition {
   id: string
@@ -58,6 +83,7 @@ export function pluginRedirect(location: string, status: 302 | 303 = 302): Plugi
 /** Platform capabilities made available to local plugin packages. */
 export interface PluginContext {
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>
+  database: DatabaseOperations
   registerRoute(route: PluginRoute): void
   registerSecret(secret: SecretDefinition): void
   getSecret(id: string): string | undefined

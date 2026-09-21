@@ -9,7 +9,11 @@ interface EmailEvaluation {
 }
 
 export default function EmailAssistantPage() {
-  const [connection, setConnection] = useState<{ configured: boolean; connected: boolean; email?: string }>()
+  const [connection, setConnection] = useState<{
+    configured: boolean
+    connected: boolean
+    email?: string
+  }>()
   const [evaluations, setEvaluations] = useState<EmailEvaluation[]>()
   const [error, setError] = useState<string>()
   const [isRunning, setIsRunning] = useState(false)
@@ -19,7 +23,9 @@ export default function EmailAssistantPage() {
   async function loadConnection() {
     try {
       const response = await fetch('/api/plugins/email-assistant/status')
-      const payload = await response.json() as { result?: { configured: boolean; connected: boolean; email?: string } }
+      const payload = await response.json() as {
+        result?: { configured: boolean; connected: boolean; email?: string }
+      }
       if (response.ok && payload.result) setConnection(payload.result)
     } catch { /* The evaluation action exposes connection failures with a useful message. */ }
   }
@@ -28,8 +34,14 @@ export default function EmailAssistantPage() {
     setIsRunning(true)
     setError(undefined)
     try {
-      const response = await fetch('/api/plugins/email-assistant/evaluate-inbox', { method: 'POST' })
-      const payload = await response.json() as { result?: { evaluations: EmailEvaluation[] }; error?: string }
+      const response = await fetch(
+        '/api/plugins/email-assistant/evaluate-inbox',
+        { method: 'POST' },
+      )
+      const payload = await response.json() as {
+        result?: { evaluations: EmailEvaluation[] }
+        error?: string
+      }
       if (!response.ok || !payload.result) throw new Error(payload.error ?? 'Inbox evaluation failed.')
       setEvaluations(payload.result.evaluations)
     } catch (cause) {
@@ -41,7 +53,7 @@ export default function EmailAssistantPage() {
 
   return <section className="conversation email-assistant-page">
     <div className="intro"><div className="plugin-icon">✉</div><div><h2>Evaluate your inbox</h2><p>Recent inbox messages are fetched locally and evaluated one at a time. Each result is a concise description.</p></div></div>
-    {!connection?.configured && <p className="notice error">Set the Google OAuth client ID and Email Assistant encryption key in Secrets before connecting Gmail.</p>}
+    {!connection?.configured && <p className="notice error">Set the Google OAuth client ID in Secrets before connecting Gmail.</p>}
     {connection?.configured && !connection.connected && <a className="evaluate-inbox" href="/api/plugins/email-assistant/connect">Connect Gmail</a>}
     {connection?.connected && <><p className="connection-note">Connected as {connection.email ?? 'your Google account'}.</p><button className="evaluate-inbox" onClick={() => void evaluateInbox()} disabled={isRunning} type="button">{isRunning ? 'Evaluating inbox…' : 'Evaluate inbox'}</button></>}
     {error && <div className="notice error">{error}</div>}

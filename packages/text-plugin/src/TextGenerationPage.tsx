@@ -35,7 +35,12 @@ export default function TextGenerationPage() {
         <textarea value={system} onChange={(event) => setSystem(event.target.value)} rows={2} />
       </label>
       <label>Prompt
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} required />
+        <textarea
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          rows={5}
+          required
+        />
       </label>
       <div className="composer-footer"><span>Powered by <strong>@jojo-claw/text-plugin</strong></span><button type="submit" disabled={isRunning}>{isRunning ? 'Generating…' : 'Generate'} <span>↑</span></button></div>
     </form>

@@ -21,6 +21,7 @@ describe('Jojo Claw HTTP API', () => {
     try {
       const installed = await fetch(`${baseUrl}/api/plugins`)
       assert.deepEqual(await installed.json(), { plugins: [
+        { id: 'database', name: 'Database', description: 'Configures the local database connection and manages platform schema.' },
         { id: 'secrets', name: 'Secrets', description: 'Lets you configure secrets requested by local plugins.' },
         { id: 'text', name: 'Text generation', description: 'Generates text using the platform-managed LLM provider.' },
         { id: 'email-assistant', name: 'Email assistant', description: 'Evaluates recent Gmail inbox messages into concise descriptions.' },
@@ -46,13 +47,12 @@ describe('Jojo Claw HTTP API', () => {
       return { text: `Description ${prompts.length}`, model: 'test-model' }
     } }
     const secretFile = temporarySecretFile()
-    const server = createJojoClawServer({ provider, plugins: [createEmailAssistantPlugin({ fetch: gmailFetch, storagePath: ':memory:' })], secretFilePath: secretFile.path }).listen(0)
+    const server = createJojoClawServer({ provider, plugins: [createEmailAssistantPlugin({ fetch: gmailFetch })], secretFilePath: secretFile.path, databasePath: ':memory:' }).listen(0)
     await once(server, 'listening')
     const address = server.address(); assert(address && typeof address !== 'string')
     const baseUrl = `http://127.0.0.1:${address.port}`
     try {
       await fetch(`${baseUrl}/api/plugins/secrets/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'google-client-id', value: 'client-id' }) })
-      await fetch(`${baseUrl}/api/plugins/secrets/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'connection-encryption-key', value: Buffer.alloc(32, 1).toString('base64') }) })
       const connect = await fetch(`${baseUrl}/api/plugins/email-assistant/connect`, { redirect: 'manual' })
       assert.equal(connect.status, 302)
       const authorization = new URL(connect.headers.get('location') ?? '')

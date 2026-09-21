@@ -38,7 +38,10 @@ export class SecretRegistry {
   }
 
   list(): ManagedSecret[] {
-    return [...this.definitions.entries()].map(([key, secret]) => ({ ...secret, configured: this.values.has(key) }))
+    return [...this.definitions.entries()].map(([key, secret]) => ({
+      ...secret,
+      configured: this.values.has(key),
+    }))
   }
 
   set(pluginId: string, id: string, value: string): void {

@@ -35,7 +35,9 @@ export function createSecretsPlugin(secrets: SecretRegistry): PlatformPlugin {
   }
 }
 
-function isSetSecretInput(value: unknown): value is { pluginId: string; id: string; value: string } {
+function isSetSecretInput(
+  value: unknown,
+): value is { pluginId: string; id: string; value: string } {
   if (!value || typeof value !== 'object') return false
   const input = value as Record<string, unknown>
   return typeof input.pluginId === 'string' && typeof input.id === 'string' && typeof input.value === 'string'

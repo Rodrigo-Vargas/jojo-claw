@@ -20,7 +20,8 @@ export function App() {
     fetch('/api/plugins').then(async (response) => {
       if (!response.ok) throw new Error('Could not load installed plugins.')
       return response.json() as Promise<{ plugins: Plugin[] }>
-    }).then(({ plugins }) => setPlugins(plugins)).catch((cause: unknown) => setError(messageOf(cause)))
+    }).then(({ plugins }) => setPlugins(plugins))
+      .catch((cause: unknown) => setError(messageOf(cause)))
   }, [])
 
   useEffect(() => {

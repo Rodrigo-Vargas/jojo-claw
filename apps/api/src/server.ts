@@ -1,19 +1,30 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
-import { type LlmProvider, type PlatformPlugin, type PluginRoute, type PluginRouteRedirect } from '@jojo-claw/core'
+import { type DatabaseOperations, type LlmProvider, type PlatformPlugin, type PluginRoute, type PluginRouteRedirect } from '@jojo-claw/core'
+import { createDatabasePlugin } from '@jojo-claw/database-plugin'
 import { OllamaProvider } from '@jojo-claw/ollama'
 import { createSecretsPlugin, SecretRegistry } from '@jojo-claw/secrets-plugin'
 import { createEmailAssistantPlugin } from '@jojo-claw/email-assistant'
 import { textPlugin } from '@jojo-claw/text-plugin'
 
-export interface JojoClawOptions { provider?: LlmProvider; plugins?: PlatformPlugin[]; secretFilePath?: string }
+export interface JojoClawOptions {
+  provider?: LlmProvider
+  plugins?: PlatformPlugin[]
+  secretFilePath?: string
+  databasePath?: string
+}
 
 /** Creates the HTTP boundary and mounts the locally installed plugin packages. */
 export function createJojoClawServer(options: JojoClawOptions = {}) {
   const provider = options.provider ?? new OllamaProvider()
   const secrets = new SecretRegistry(options.secretFilePath ?? resolve(process.cwd(), '.env'))
-  const plugins = [createSecretsPlugin(secrets), ...(options.plugins ?? [textPlugin, createEmailAssistantPlugin()])]
-  const routes = mountPlugins(plugins, provider, secrets)
+  const database = createDatabasePlugin({ storagePath: options.databasePath })
+  const plugins = [
+    database.plugin,
+    createSecretsPlugin(secrets),
+    ...(options.plugins ?? [textPlugin, createEmailAssistantPlugin()]),
+  ]
+  const routes = mountPlugins(plugins, provider, secrets, database.operations)
   return createServer(async (request, response) => {
     setCors(response)
     if (request.method === 'OPTIONS') return response.end()
@@ -42,10 +53,12 @@ function mountPlugins(
   plugins: PlatformPlugin[],
   provider: LlmProvider,
   secrets: SecretRegistry,
+  database: DatabaseOperations,
 ): Map<string, PluginRoute> {
   const routes = new Map<string, PluginRoute>()
   for (const plugin of plugins) plugin.register({
     generateText: (input) => provider.generate(input),
+    database,
     registerRoute: (route) => {
       if (!route.path.startsWith('/')) throw new Error(`Plugin route for ${plugin.manifest.id} must start with '/'.`)
       const key = `${route.method} /api/plugins/${plugin.manifest.id}${route.path}`
