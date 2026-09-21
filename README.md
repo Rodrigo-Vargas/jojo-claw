@@ -44,6 +44,24 @@ curl -X POST http://localhost:8788/api/plugins/text/generate \
 
 `GET /api/plugins` lists the packages mounted by the API, and `GET /health` provides a basic readiness check.
 
+## Connect Email Assistant to Gmail
+
+Email Assistant uses the OAuth authorization-code flow with PKCE. In Google Cloud, enable the Gmail API, configure an OAuth client, and register this redirect URI (or the value chosen for `JOJO_GOOGLE_REDIRECT_URI`):
+
+```text
+http://localhost:8788/api/plugins/email-assistant/oauth/callback
+```
+
+In the **Secrets** page, configure `email-assistant/google-client-id` and `email-assistant/connection-encryption-key`. Generate the encryption key once and retain it: changing it makes existing local Gmail connections unreadable.
+
+```sh
+openssl rand -base64 32
+```
+
+Set the output as `email-assistant/connection-encryption-key`; set `email-assistant/google-client-secret` too when the selected Google OAuth client requires one. Then open Email assistant and choose **Connect Gmail**. The plugin requests only Gmail read access and stores access/refresh tokens encrypted in `.jojo-claw/email-assistant.db`.
+
+The current Secrets plugin keeps values only for the API process lifetime. After an API restart, enter the same three values again before using the saved Gmail connection; a durable secret vault is a remaining platform enhancement.
+
 ## Structure
 
 ```text

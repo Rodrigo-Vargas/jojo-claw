@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -13,11 +16,17 @@
     "dev:web": "npm run dev --workspace=@jojo-claw/web",
     "start": "npm run start --workspace=@jojo-claw/api",
     "build": "tsc && npm run build --workspace=@jojo-claw/web",
-    "test": "tsx --test apps/api/test/**/*.test.ts"
+    "test": "tsx --test apps/api/test/**/*.test.ts",
+    "lint": "eslint .",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
+    "eslint": "^10.11.0",
+    "husky": "^9.1.7",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.70.0"
   }
 }

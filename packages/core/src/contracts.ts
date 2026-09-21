@@ -34,7 +34,25 @@ export interface SecretDefinition {
 export interface PluginRoute {
   method: 'GET' | 'POST'
   path: string
-  handle(body: unknown): Promise<unknown>
+  handle(input: PluginRouteInput): Promise<unknown | PluginRouteRedirect>
+}
+
+/** The normalized request data exposed to a plugin route. */
+export interface PluginRouteInput {
+  method: 'GET' | 'POST'
+  query: Readonly<Record<string, string>>
+  body: unknown
+}
+
+/** A plugin route can complete an OAuth-style browser flow with a local redirect. */
+export interface PluginRouteRedirect {
+  type: 'redirect'
+  location: string
+  status?: 302 | 303
+}
+
+export function pluginRedirect(location: string, status: 302 | 303 = 302): PluginRouteRedirect {
+  return { type: 'redirect', location, status }
 }
 
 /** Platform capabilities made available to local plugin packages. */

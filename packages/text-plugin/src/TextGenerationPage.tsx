@@ -31,8 +31,12 @@ export default function TextGenerationPage() {
   return <section className="conversation">
     <div className="intro"><div className="plugin-icon">✦</div><div><h2>Ask the text plugin</h2><p>This local package calls the platform-managed Ollama provider. No plugin configuration or provider credentials required.</p></div></div>
     <form onSubmit={generate} className="composer">
-      <label>System guidance<textarea value={system} onChange={(event) => setSystem(event.target.value)} rows={2} /></label>
-      <label>Prompt<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} required /></label>
+      <label>System guidance
+        <textarea value={system} onChange={(event) => setSystem(event.target.value)} rows={2} />
+      </label>
+      <label>Prompt
+        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} required />
+      </label>
       <div className="composer-footer"><span>Powered by <strong>@jojo-claw/text-plugin</strong></span><button type="submit" disabled={isRunning}>{isRunning ? 'Generating…' : 'Generate'} <span>↑</span></button></div>
     </form>
     {error && <div className="notice error">{error}</div>}

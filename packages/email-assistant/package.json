@@ -1,0 +1,15 @@
+{
+  "name": "@jojo-claw/email-assistant",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./web": "./src/web.tsx"
+  },
+  "dependencies": {
+    "@jojo-claw/core": "*"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0"
+  }
+}

@@ -8,7 +8,7 @@ export const textPlugin: PlatformPlugin = {
     context.registerRoute({
       method: 'POST',
       path: '/generate',
-      async handle(body) {
+      async handle({ body }) {
         if (!isGenerateTextInput(body)) throw new Error('prompt is required; system and model must be strings when supplied.')
         return context.generateText(body)
       },
