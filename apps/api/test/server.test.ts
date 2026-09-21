@@ -30,6 +30,28 @@ describe('Jojo Claw HTTP API', () => {
     try { assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/plugins/missing/generate`, { method: 'POST' })).status, 404) } finally { server.close(); await once(server, 'close') }
   })
 
+  it('mounts a plugin GET route without reading a request body', async () => {
+    let receivedBody: unknown = 'not called'
+    const plugin: PlatformPlugin = {
+      manifest: { id: 'connection', name: 'Connection', description: 'Reports connection status.' },
+      register(context) {
+        context.registerRoute({
+          method: 'GET',
+          path: '/status',
+          async handle(body) { receivedBody = body; return { connected: true } },
+        })
+      },
+    }
+    const server = createJojoClawServer({ provider: { generate: async () => ({ text: 'unused', model: 'test' }) }, plugins: [plugin] }).listen(0)
+    await once(server, 'listening'); const address = server.address(); assert(address && typeof address !== 'string')
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/plugins/connection/status`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), { result: { connected: true } })
+      assert.equal(receivedBody, undefined)
+    } finally { server.close(); await once(server, 'close') }
+  })
+
   it('lets plugins register secrets without exposing their values in the list', async () => {
     let configuredValue: string | undefined
     const plugin: PlatformPlugin = {

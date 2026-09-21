@@ -20,7 +20,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       if (request.method === 'GET' && url.pathname === '/health') return sendJson(response, 200, { status: 'ok' })
       if (request.method === 'GET' && url.pathname === '/api/plugins') return sendJson(response, 200, { plugins: plugins.map((plugin) => plugin.manifest) })
       const route = routes.get(`${request.method ?? 'GET'} ${url.pathname}`)
-      if (route) return sendJson(response, 200, { result: await route.handle(await readJson(request)) })
+      if (route) return sendJson(response, 200, { result: await route.handle(request.method === 'POST' ? await readJson(request) : undefined) })
       return sendJson(response, 404, { error: 'Not found.' })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected server error.'

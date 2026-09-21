@@ -32,7 +32,7 @@ export interface SecretDefinition {
 
 /** A route contributed by an installed plugin package. */
 export interface PluginRoute {
-  method: 'POST'
+  method: 'GET' | 'POST'
   path: string
   handle(body: unknown): Promise<unknown>
 }
