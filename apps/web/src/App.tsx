@@ -1,11 +1,12 @@
 import { Suspense, useEffect, useState } from 'react'
 import { textWebPlugin } from '@jojo-claw/text-plugin/web'
+import { secretsWebPlugin } from '@jojo-claw/secrets-plugin/web'
 import { mountWebPlugins } from './plugin-registry.js'
 
 interface Plugin { id: string; name: string; description: string }
 
 // Installed browser plugins are deliberately composed here at build time.
-const pages = mountWebPlugins([textWebPlugin])
+const pages = mountWebPlugins([textWebPlugin, secretsWebPlugin])
 const defaultPage = pages[0]
 
 export function App() {

@@ -1,1 +1,1 @@
-export type { GenerateTextInput, GenerateTextResult, LlmProvider, PlatformPlugin, PluginContext, PluginManifest, PluginPage, PluginRoute, WebPlatformPlugin, WebPluginContext } from './contracts.js'
+export type { GenerateTextInput, GenerateTextResult, LlmProvider, PlatformPlugin, PluginContext, PluginManifest, PluginPage, PluginRoute, SecretDefinition, WebPlatformPlugin, WebPluginContext } from './contracts.js'

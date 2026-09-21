@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "dev": "tsx watch src/main.ts", "start": "tsx src/main.ts" },
-  "dependencies": { "@jojo-claw/core": "*", "@jojo-claw/ollama": "*", "@jojo-claw/text-plugin": "*" }
+  "dependencies": { "@jojo-claw/core": "*", "@jojo-claw/ollama": "*", "@jojo-claw/secrets-plugin": "*", "@jojo-claw/text-plugin": "*" }
 }

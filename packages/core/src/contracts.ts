@@ -23,6 +23,13 @@ export interface LlmProvider {
   generate(input: GenerateTextInput): Promise<GenerateTextResult>
 }
 
+/** A secret that a plugin needs the local user to provide. */
+export interface SecretDefinition {
+  id: string
+  name: string
+  description?: string
+}
+
 /** A route contributed by an installed plugin package. */
 export interface PluginRoute {
   method: 'POST'
@@ -34,6 +41,8 @@ export interface PluginRoute {
 export interface PluginContext {
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>
   registerRoute(route: PluginRoute): void
+  registerSecret(secret: SecretDefinition): void
+  getSecret(id: string): string | undefined
 }
 
 /** A Node package that extends the platform at API composition time. */

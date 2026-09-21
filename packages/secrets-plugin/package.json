@@ -1,0 +1,10 @@
+{
+  "name": "@jojo-claw/secrets-plugin",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./web": "./src/web.tsx"
+  },
+  "dependencies": { "@jojo-claw/core": "*", "react": "^19.1.0" }
+}
