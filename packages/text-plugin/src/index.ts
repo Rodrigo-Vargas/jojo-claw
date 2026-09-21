@@ -1,12 +1,9 @@
 import type { GenerateTextInput, PlatformPlugin } from '@jojo-claw/core'
+import { textPluginManifest } from './manifest.js'
 
 /** The first installed package: a thin text-generation capability. */
 export const textPlugin: PlatformPlugin = {
-  manifest: {
-    id: 'text',
-    name: 'Text generation',
-    description: 'Generates text using the platform-managed LLM provider.',
-  },
+  manifest: textPluginManifest,
   register(context) {
     context.registerRoute({
       method: 'POST',

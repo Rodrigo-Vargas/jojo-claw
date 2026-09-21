@@ -2,5 +2,6 @@
   "name": "@jojo-claw/core",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts"
+  "exports": "./src/index.ts",
+  "peerDependencies": { "react": "^19.1.0" }
 }

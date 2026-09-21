@@ -1,6 +1,6 @@
 # Jojo Claw
 
-Jojo Claw is a barebones local AI platform. Plugins are Node packages in `packages/`, composed by the API at startup. A plugin receives the platform's AI capability in its `register()` function, so it never needs Ollama's URL, request format, or model lifecycle details.
+Jojo Claw is a barebones local AI platform. Plugins are local packages in `packages/`, composed explicitly by the API and web app at startup/build time. A server plugin receives the platform's AI capability in its `register()` function, so it never needs Ollama's URL, request format, or model lifecycle details. A browser plugin can register pages in the application.
 
 ```text
 plugin package → Jojo Claw API → Ollama
@@ -51,14 +51,14 @@ apps/
   api/                 HTTP composition root
   web/                 browser application placeholder
 packages/
-  core/                plugin contracts and AI capability types
+  core/                server and browser plugin contracts
   ollama/              Ollama provider adapter
   text-plugin/         first local package using the AI capability
 ```
 
-`apps/api` owns HTTP and explicitly composes the installed packages. `packages/core` defines the plugin boundary, while `packages/ollama` is the only place that knows Ollama's API. `apps/web` is deliberately a minimal landing page until the API shape is approved.
+`apps/api` owns HTTP and explicitly composes installed server packages. `apps/web` explicitly imports installed browser entries and mounts their pages. `packages/core` defines both boundaries, while `packages/ollama` is the only place that knows Ollama's API.
 
-To add another plugin, create a package under `packages/`, export a `PlatformPlugin`, add it to `apps/api` dependencies, then include it in the `plugins` list in `apps/api/src/server.ts`.
+To add another plugin, create a package under `packages/`, export a server `PlatformPlugin` and/or browser `WebPlatformPlugin`, then explicitly include it in the corresponding host composition list. Browser pages must live beneath `/plugins/<plugin-id>` and are rendered in host navigation.
 
 ## Checks
 

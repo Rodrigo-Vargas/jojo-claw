@@ -1,3 +1,5 @@
+import type { ComponentType } from 'react'
+
 /** Metadata for a plugin installed as a local Node package. */
 export interface PluginManifest {
   id: string
@@ -38,4 +40,24 @@ export interface PluginContext {
 export interface PlatformPlugin {
   manifest: PluginManifest
   register(context: PluginContext): void
+}
+
+/** A browser page contributed by an installed plugin package. */
+export interface PluginPage {
+  id: string
+  title: string
+  navLabel: string
+  path: string
+  component: ComponentType
+}
+
+/** Browser capabilities made available to local plugin packages. */
+export interface WebPluginContext {
+  registerPage(page: PluginPage): void
+}
+
+/** A Node package's browser entry point, composed explicitly by the web app. */
+export interface WebPlatformPlugin {
+  manifest: PluginManifest
+  register(context: WebPluginContext): void
 }
