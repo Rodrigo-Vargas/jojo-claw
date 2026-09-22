@@ -41,9 +41,32 @@ function initializeSchema(connection: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS email_assistant_evaluation (
       message_id TEXT PRIMARY KEY, sender TEXT NOT NULL, subject TEXT NOT NULL,
       received_at TEXT NOT NULL, description TEXT NOT NULL, category TEXT,
-      suggested_category TEXT
+      suggested_category TEXT, category_status TEXT NOT NULL DEFAULT 'processing',
+      category_error TEXT, suggested_action TEXT, action_applied_at TEXT
     );
   `);
+  addEvaluationColumn(connection, "category_status TEXT NOT NULL DEFAULT 'processing'");
+  addEvaluationColumn(connection, "category_error TEXT");
+  addEvaluationColumn(connection, "suggested_action TEXT");
+  addEvaluationColumn(connection, "action_applied_at TEXT");
+  connection.exec(`
+    UPDATE email_assistant_evaluation
+    SET category_status = CASE
+      WHEN category IS NOT NULL THEN 'confirmed'
+      WHEN suggested_category IS NOT NULL THEN 'suggested-new'
+      ELSE category_status
+    END
+    WHERE category_status = 'processing'
+  `);
+}
+
+function addEvaluationColumn(connection: DatabaseSync, definition: string): void {
+  const column = definition.split(" ")[0];
+  const columns = connection
+    .prepare("PRAGMA table_info(email_assistant_evaluation)")
+    .all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column))
+    connection.exec(`ALTER TABLE email_assistant_evaluation ADD COLUMN ${definition}`);
 }
 
 /** Configures SQLite and applies schema owned by the platform database plugin.
@@ -149,7 +172,9 @@ export function createDatabasePlugin(
         const rows = connection
           .prepare(
             `
-          SELECT message_id, sender, subject, received_at, description, category, suggested_category
+          SELECT message_id, sender, subject, received_at, description, category,
+                 suggested_category,
+                 category_status, category_error, suggested_action, action_applied_at
           FROM email_assistant_evaluation
           ORDER BY received_at ASC, message_id ASC
         `,
@@ -162,6 +187,10 @@ export function createDatabasePlugin(
           description: string;
           category: string | null;
           suggested_category: string | null;
+          category_status: EmailAssistantEvaluation["categoryStatus"];
+          category_error: string | null;
+          suggested_action: string | null;
+          action_applied_at: string | null;
         }>;
         return rows.map((row) => ({
           messageId: row.message_id,
@@ -173,6 +202,10 @@ export function createDatabasePlugin(
           ...(row.suggested_category
             ? { suggestedCategory: row.suggested_category }
             : {}),
+          categoryStatus: row.category_status,
+          ...(row.category_error ? { categoryError: row.category_error } : {}),
+          ...(row.suggested_action ? { suggestedAction: row.suggested_action } : {}),
+          ...(row.action_applied_at ? { actionAppliedAt: row.action_applied_at } : {}),
         }));
       },
       saveEvaluation(input: EmailAssistantEvaluation) {
@@ -180,14 +213,17 @@ export function createDatabasePlugin(
           .prepare(
             `
           INSERT INTO email_assistant_evaluation (
-            message_id, sender, subject, received_at, description, category, suggested_category
+            message_id, sender, subject, received_at, description, category, suggested_category,
+            category_status, category_error
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(message_id) DO UPDATE SET
             sender = excluded.sender, subject = excluded.subject,
             received_at = excluded.received_at,
             description = excluded.description, category = excluded.category,
-            suggested_category = excluded.suggested_category
+            suggested_category = excluded.suggested_category,
+            category_status = excluded.category_status,
+            category_error = excluded.category_error
         `,
           )
           .run(
@@ -198,18 +234,51 @@ export function createDatabasePlugin(
             input.description,
             input.category ?? null,
             input.suggestedCategory ?? null,
+            input.categoryStatus,
+            input.categoryError ?? null,
           );
       },
-      confirmEvaluationCategory(messageId: string, category: string) {
+      confirmEvaluationCategory(
+        messageId: string,
+        category: string,
+        suggestedAction?: string,
+      ) {
         connection
           .prepare(
             `
           UPDATE email_assistant_evaluation
-          SET category = ?, suggested_category = NULL
+          SET category = ?, suggested_category = NULL, category_status = 'confirmed',
+              category_error = NULL, suggested_action = ?
           WHERE message_id = ?
         `,
           )
-          .run(category, messageId);
+          .run(category, suggestedAction ?? null, messageId);
+      },
+      saveCategorySuggestion(messageId, category, status) {
+        connection
+          .prepare(
+            `UPDATE email_assistant_evaluation
+             SET category = NULL, suggested_category = ?, category_status = ?,
+                 category_error = NULL
+             WHERE message_id = ?`,
+          )
+          .run(category, status, messageId);
+      },
+      failCategoryEvaluation(messageId, error) {
+        connection
+          .prepare(
+            `UPDATE email_assistant_evaluation
+             SET category_status = 'failed', category_error = ?
+             WHERE message_id = ?`,
+          )
+          .run(error, messageId);
+      },
+      markEvaluationActionApplied(messageId, appliedAt) {
+        connection
+          .prepare(
+            "UPDATE email_assistant_evaluation SET action_applied_at = ? WHERE message_id = ?",
+          )
+          .run(appliedAt, messageId);
       },
     },
   };

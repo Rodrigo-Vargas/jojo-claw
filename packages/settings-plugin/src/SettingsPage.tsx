@@ -15,6 +15,7 @@ interface ManagedSetting {
   defaultValue: PluginSettingValue;
   value: PluginSettingValue;
 }
+interface GmailLabel { id: string; name: string }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ManagedSetting[]>([]);
@@ -23,6 +24,7 @@ export default function SettingsPage() {
   const [listInputs, setListInputs] = useState<Record<string, string[]>>({});
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
+  const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
   async function load() {
     const response = await fetch("/api/plugins/settings/list", {
       method: "POST",
@@ -60,7 +62,17 @@ export default function SettingsPage() {
   }
   useEffect(() => {
     void load().catch((cause: unknown) => setError(messageOf(cause)));
+    void loadGmailLabels();
   }, []);
+  async function loadGmailLabels() {
+    try {
+      const response = await fetch("/api/plugins/email-assistant/labels");
+      const payload = (await response.json()) as { result?: GmailLabel[] };
+      if (response.ok && payload.result) setGmailLabels(payload.result);
+    } catch {
+      /* Email actions can still be configured after Gmail is connected. */
+    }
+  }
   async function save(
     event: FormEvent<HTMLFormElement>,
     setting: ManagedSetting,
@@ -138,7 +150,17 @@ export default function SettingsPage() {
               </code>
               {setting.description && <p>{setting.description}</p>}
             </div>
-            {setting.type === "list" ? (
+            {isCategoryActionSetting(setting) ? (
+              <CategoryActionList
+                categories={emailCategoryNames(settings)}
+                labels={gmailLabels}
+                setting={setting}
+                values={listInputs[keyOf(setting)] ?? []}
+                onChange={(items) =>
+                  setListInputs({ ...listInputs, [keyOf(setting)]: items })
+                }
+              />
+            ) : setting.type === "list" ? (
               <div className="setting-list-editor">
                 <span>JSON items</span>
                 {(listInputs[keyOf(setting)] ?? []).map((item, index) => (
@@ -235,6 +257,64 @@ export default function SettingsPage() {
       {error && <div className="notice error">{error}</div>}
     </section>
   );
+}
+function isCategoryActionSetting(setting: ManagedSetting): boolean {
+  return setting.pluginId === "email-assistant" && setting.id === "category-actions";
+}
+function emailCategoryNames(settings: ManagedSetting[]): string[] {
+  const setting = settings.find(
+    (item) => item.pluginId === "email-assistant" && item.id === "categories",
+  );
+  if (!setting || !Array.isArray(setting.value)) return [];
+  return setting.value.flatMap((item) => {
+    if (typeof item === "string" && item.trim()) return [item.trim()];
+    if (!item || typeof item !== "object") return [];
+    const name = (item as { name?: unknown }).name;
+    return typeof name === "string" && name.trim() ? [name.trim()] : [];
+  });
+}
+function CategoryActionList({
+  categories, labels, setting, values, onChange,
+}: {
+  categories: string[]; labels: GmailLabel[]; setting: ManagedSetting;
+  values: string[]; onChange(items: string[]): void;
+}) {
+  const actions = categoryActionMap(values);
+  function setAction(category: string, action: string) {
+    const next = new Map(actions);
+    if (action) next.set(category, action); else next.delete(category);
+    onChange([...next].map(([name, value]) => JSON.stringify({ category: name, action: value })));
+  }
+  return <div className="setting-list-editor">
+    <span>Suggested action by category</span>
+    {categories.map((category) => <label key={category}>
+      <span>{category}</span>
+      <select
+        aria-label={`${setting.name} ${category}`}
+        value={actions.get(category) ?? ""}
+        onChange={(event) => setAction(category, event.target.value)}
+      >
+        <option value="">No suggested action</option>
+        <option value="star">Star</option>
+        <option value="trash">Move to trash</option>
+        {labels.map((label) => (
+          <option key={label.id} value={`archive:${label.name}`}>
+            Archive in {label.name}
+          </option>
+        ))}
+      </select>
+    </label>)}
+    {categories.length === 0 && <span>Add email categories before mapping actions.</span>}
+  </div>;
+}
+function categoryActionMap(values: string[]): Map<string, string> {
+  return new Map(values.flatMap((value) => {
+    try {
+      const entry = JSON.parse(value) as { category?: unknown; action?: unknown };
+      return typeof entry.category === "string" && typeof entry.action === "string"
+        ? [[entry.category, entry.action] as [string, string]] : [];
+    } catch { return []; }
+  }));
 }
 function keyOf(setting: ManagedSetting): string {
   return `${setting.pluginId}:${setting.id}`;

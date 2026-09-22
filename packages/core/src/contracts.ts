@@ -74,6 +74,10 @@ export interface EmailAssistantEvaluation {
   description: string
   category?: string
   suggestedCategory?: string
+  categoryStatus: 'processing' | 'suggested-new' | 'suggested-existing' | 'confirmed' | 'failed'
+  categoryError?: string
+  suggestedAction?: string
+  actionAppliedAt?: string
 }
 
 /** Persistence operations owned and implemented by the database platform plugin. */
@@ -87,7 +91,18 @@ export interface DatabaseOperations {
     consumeOAuthTransaction(state: string): EmailAssistantOAuthTransaction | undefined
     listEvaluations(): EmailAssistantEvaluation[]
     saveEvaluation(evaluation: EmailAssistantEvaluation): void
-    confirmEvaluationCategory(messageId: string, category: string): void
+    confirmEvaluationCategory(
+      messageId: string,
+      category: string,
+      suggestedAction?: string,
+    ): void
+    saveCategorySuggestion(
+      messageId: string,
+      category: string,
+      status: 'suggested-new' | 'suggested-existing',
+    ): void
+    failCategoryEvaluation(messageId: string, error: string): void
+    markEvaluationActionApplied(messageId: string, appliedAt: string): void
   }
 }
 

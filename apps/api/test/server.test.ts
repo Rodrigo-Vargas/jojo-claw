@@ -11,14 +11,14 @@ import { OllamaProvider } from '@jojo-claw/ollama'
 import { createJojoClawServer } from '../src/server.js'
 
 function temporarySecretFile(): { directory: string; path: string } { const directory = mkdtempSync(join(tmpdir(), 'jojo-claw-secrets-')); return { directory, path: join(directory, '.env') } }
-async function waitForEvaluation(baseUrl: string, evaluationId: string): Promise<Record<string, unknown>> {
+async function waitForCategoryResults(baseUrl: string): Promise<Array<Record<string, unknown>>> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const response = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluation-progress?evaluationId=${evaluationId}`)
-    const payload = await response.json() as { result: Record<string, unknown> }
-    if (payload.result.state !== 'running') return payload.result
+    const response = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
+    const payload = await response.json() as { result: Array<Record<string, unknown>> }
+    if (payload.result.every((email) => email.categoryStatus !== 'processing')) return payload.result
     await new Promise<void>((resolve) => setTimeout(resolve, 5))
   }
-  throw new Error('Inbox evaluation did not complete.')
+  throw new Error('Category evaluation did not complete.')
 }
 
 describe('Jojo Claw HTTP API', () => {
@@ -166,15 +166,22 @@ describe('Jojo Claw HTTP API', () => {
     const prompts: string[] = []
     const gmailFetch: typeof fetch = async (input) => {
       const url = String(input)
-      if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600, scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email' })
+      if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600, scope: 'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/userinfo.email' })
       if (url === 'https://www.googleapis.com/oauth2/v2/userinfo') return Response.json({ email: 'person@example.com' })
       if (url.includes('/messages?')) return Response.json({ messages: [{ id: 'one' }, { id: 'two' }] })
       if (url.includes('/messages/one')) return Response.json({ id: 'one', internalDate: '0', payload: { headers: [{ name: 'From', value: 'alice@example.com' }, { name: 'Subject', value: 'First' }], mimeType: 'text/plain', body: { data: 'SGVsbG8' } } })
       return Response.json({ id: 'two', internalDate: '1000', payload: { headers: [{ name: 'From', value: 'bob@example.com' }, { name: 'Subject', value: 'Second' }], mimeType: 'text/plain', body: { data: 'V29ybGQ' } } })
     }
+    const toolRequests: GenerateWithToolsInput[] = []
     const provider: LlmProvider = { generate: async (input) => {
       prompts.push(input.prompt)
-      return { text: input.prompt.includes('Available categories:') ? (input.prompt.includes('Hello') ? 'Work' : 'Newsletters') : `Description ${prompts.length}`, model: 'test-model' }
+      return { text: `Description ${prompts.length}`, model: 'test-model' }
+    }, generateWithTools: async (input) => {
+      toolRequests.push(input)
+      const prompt = input.messages.at(-1)?.content ?? ''
+      const name = prompt.includes('Hello') ? 'confirm_existing_category' : 'suggest_new_category'
+      const category = prompt.includes('Hello') ? 'Work' : 'Newsletters'
+      return { text: '', model: 'test-model', toolCalls: [{ id: 'call-1', name, arguments: { category } }] }
     } }
     const secretFile = temporarySecretFile()
     const server = createJojoClawServer({ provider, plugins: [createEmailAssistantPlugin({ fetch: gmailFetch })], secretFilePath: secretFile.path, databasePath: ':memory:' }).listen(0)
@@ -191,30 +198,25 @@ describe('Jojo Claw HTTP API', () => {
       assert.equal(callback.status, 302)
       const response = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
       assert.equal(response.status, 200)
-      const started = await response.json() as { result: { evaluationId: string } }
-      assert.match(started.result.evaluationId, /^[a-f0-9]{32}$/)
-      assert.deepEqual(await waitForEvaluation(baseUrl, started.result.evaluationId), {
-        state: 'complete', total: 2, read: 2, evaluations: [
-        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', category: 'Work' },
-        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 3', suggestedCategory: 'Newsletters' },
-      ],
-      })
-      assert.equal(prompts.length, 4)
+      const started = await response.json() as { result: { evaluations: Array<{ categoryStatus: string }> } }
+      assert.equal(started.result.evaluations.length, 2)
+      assert.ok(started.result.evaluations.some((email) => email.categoryStatus === 'processing'))
+      assert.deepEqual(await waitForCategoryResults(baseUrl), [
+        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing' },
+        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', suggestedCategory: 'Newsletters', categoryStatus: 'suggested-new' },
+      ])
+      assert.equal(prompts.length, 2)
       assert.match(prompts[0], /Hello/)
-      assert.match(prompts[1], /Available categories:\n- Work\n- Personal/)
-      assert.match(prompts[2], /World/)
-      assert.match(prompts[3], /Available categories:\n- Work\n- Personal/)
+      assert.match(prompts[1], /World/)
+      assert.deepEqual(toolRequests.map((request) => request.tools.map((tool) => tool.name)), [['suggest_new_category', 'confirm_existing_category'], ['suggest_new_category', 'confirm_existing_category']])
       const saved = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
       assert.deepEqual((await saved.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['one', 'two'])
       const nextBatch = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
-      const nextBatchId = (await nextBatch.json() as { result: { evaluationId: string } }).result.evaluationId
-      assert.deepEqual(await waitForEvaluation(baseUrl, nextBatchId), {
-        state: 'complete', total: 0, read: 0, evaluations: [],
-      })
+      assert.deepEqual((await nextBatch.json() as { result: { evaluations: unknown[] } }).result.evaluations, [])
       const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters', messageId: 'two' }) })
       assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters' } })
       const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
-      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 3', category: 'Newsletters' })
+      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
       assert.deepEqual(categories?.value, [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }, { name: 'Newsletters', action: '' }])

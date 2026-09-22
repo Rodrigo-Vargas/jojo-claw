@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { DatabaseOperations } from '@jojo-claw/core'
 
-const gmailReadScope = 'https://www.googleapis.com/auth/gmail.readonly'
+const gmailModifyScope = 'https://www.googleapis.com/auth/gmail.modify'
 const userinfoEmailScope = 'https://www.googleapis.com/auth/userinfo.email'
 const transactionLifetimeMs = 10 * 60 * 1_000
 
@@ -40,7 +40,7 @@ export class GoogleConnectionService {
     const transaction = this.options.database.emailAssistant.consumeOAuthTransaction(query.state)
     if (!transaction || transaction.createdAt < Date.now() - transactionLifetimeMs) throw new Error('The Google authorization request expired. Start the connection again.')
     const token = await this.tokenRequest(configuration, { code: query.code, code_verifier: transaction.codeVerifier, grant_type: 'authorization_code', redirect_uri: configuration.redirectUri })
-    if (!hasGmailReadScope(token.scope) || !token.access_token || !token.refresh_token) throw new Error('Google did not grant durable Gmail read access. Reconnect and approve the requested permission.')
+    if (!hasGmailModifyScope(token.scope) || !token.access_token || !token.refresh_token) throw new Error('Google did not grant Gmail modify access. Reconnect and approve the requested permission.')
     this.saveConnection(token.access_token, token.refresh_token, token.expires_in, token.scope ?? '', await this.accountEmail(token.access_token))
   }
 
@@ -48,7 +48,7 @@ export class GoogleConnectionService {
     const configuration = this.configuration()
     const connection = this.options.database.emailAssistant.getConnection()
     if (!connection) throw new Error('Gmail is not connected. Connect Gmail before evaluating the inbox.')
-    if (!hasGmailReadScope(connection.grantedScopes)) throw new Error('The Gmail connection no longer has read access. Reconnect Gmail.')
+    if (!hasGmailModifyScope(connection.grantedScopes)) throw new Error('Gmail modify access is required. Reconnect Gmail and approve the updated permission.')
     if (connection.expiryDate > Date.now() + 60_000) return connection.accessToken
     const token = await this.tokenRequest(configuration, { refresh_token: connection.refreshToken, grant_type: 'refresh_token' })
     if (!token.access_token) throw new Error('Google did not return a refreshed access token.')
@@ -91,12 +91,12 @@ export class GoogleConnectionService {
 
 function createAuthorizationUrl(configuration: OAuthConfiguration, state: string, verifier: string): string {
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
-  url.search = new URLSearchParams({ client_id: configuration.clientId, redirect_uri: configuration.redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: `${gmailReadScope} ${userinfoEmailScope}`, state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString()
+  url.search = new URLSearchParams({ client_id: configuration.clientId, redirect_uri: configuration.redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: `${gmailModifyScope} ${userinfoEmailScope}`, state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString()
   return url.toString()
 }
 function validateAuthorizationQuery(query: Readonly<Record<string, string>>): asserts query is Readonly<Record<string, string>> & { code: string; state: string } {
   if (query.error) throw new Error(`Google authorization was not completed: ${query.error}.`)
   if (!query.code || !query.state) throw new Error('Google did not return an authorization code and state.')
 }
-function hasGmailReadScope(scopes: string | undefined): boolean { return scopes?.split(/\s+/).includes(gmailReadScope) ?? false }
+function hasGmailModifyScope(scopes: string | undefined): boolean { return scopes?.split(/\s+/).includes(gmailModifyScope) ?? false }
 async function revokeConnection(request: typeof fetch, accessToken: string): Promise<void> { try { await request(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(accessToken)}`, { method: 'POST' }) } catch { /* Local disconnect must not depend on Google's availability. */ } }

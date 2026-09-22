@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function -- This page coordinates one inbox-evaluation workflow. */
+/* eslint-disable max-lines-per-function, max-len -- This page coordinates one inbox-evaluation workflow. */
 import { useEffect, useState } from "react";
 
 interface EmailEvaluation {
@@ -9,13 +9,10 @@ interface EmailEvaluation {
   description: string;
   category?: string;
   suggestedCategory?: string;
-}
-interface InboxEvaluationProgress {
-  state: "running" | "complete" | "failed";
-  total: number;
-  read: number;
-  evaluations: EmailEvaluation[];
-  error?: string;
+  categoryStatus?: "processing" | "suggested-new" | "suggested-existing" | "confirmed" | "failed";
+  categoryError?: string;
+  suggestedAction?: string;
+  actionAppliedAt?: string;
 }
 
 /** Renders saved and newly evaluated Gmail Inbox messages.
@@ -30,8 +27,9 @@ export default function EmailAssistantPage() {
   const [evaluations, setEvaluations] = useState<EmailEvaluation[]>();
   const [error, setError] = useState<string>();
   const [isRunning, setIsRunning] = useState(false);
-  const [progress, setProgress] = useState<InboxEvaluationProgress>();
   const [confirmingCategory, setConfirmingCategory] = useState<string>();
+  const [applyingAction, setApplyingAction] = useState<string>();
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   useEffect(() => {
     void Promise.all([loadConnection(), loadEvaluations()]);
@@ -61,19 +59,21 @@ export default function EmailAssistantPage() {
   async function evaluateInbox() {
     setIsRunning(true);
     setError(undefined);
-    setProgress({ state: "running", total: 0, read: 0, evaluations: [] });
     try {
       const response = await fetch(
         "/api/plugins/email-assistant/evaluate-inbox",
         { method: "POST" },
       );
       const payload = (await response.json()) as {
-        result?: { evaluationId: string };
+        result?: { evaluations: EmailEvaluation[] };
         error?: string;
       };
       if (!response.ok || !payload.result)
         throw new Error(payload.error ?? "Inbox evaluation failed.");
-      await watchEvaluation(payload.result.evaluationId);
+      setEvaluations((current) =>
+        mergeEvaluations(current ?? [], payload.result?.evaluations ?? []),
+      );
+      void watchCategoryEvaluations();
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Inbox evaluation failed.",
@@ -82,28 +82,36 @@ export default function EmailAssistantPage() {
       setIsRunning(false);
     }
   }
-  async function watchEvaluation(evaluationId: string) {
-    while (true) {
-      const progressPath = "/api/plugins/email-assistant/evaluation-progress";
-      const url = `${progressPath}?evaluationId=${encodeURIComponent(evaluationId)}`;
-      const response = await fetch(url);
+  async function disconnectGmail() {
+    setIsDisconnecting(true);
+    setError(undefined);
+    try {
+      const response = await fetch("/api/plugins/email-assistant/disconnect", {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Gmail reconnection failed.");
+      await loadConnection();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Gmail reconnection failed.");
+    } finally {
+      setIsDisconnecting(false);
+    }
+  }
+  async function watchCategoryEvaluations() {
+    let hasProcessing = true;
+    while (hasProcessing) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
+      const response = await fetch("/api/plugins/email-assistant/evaluations");
       const payload = (await response.json()) as {
-        result?: InboxEvaluationProgress;
+        result?: EmailEvaluation[];
         error?: string;
       };
       if (!response.ok || !payload.result)
         throw new Error(payload.error ?? "Inbox evaluation failed.");
-      setProgress(payload.result);
-      const newEvaluations = payload.result.evaluations;
-      setEvaluations((current) =>
-        mergeEvaluations(current ?? [], newEvaluations),
+      setEvaluations(payload.result);
+      hasProcessing = payload.result.some(
+        (email) => email.categoryStatus === "processing",
       );
-      if (payload.result.state === "complete") {
-        return;
-      }
-      if (payload.result.state === "failed")
-        throw new Error(payload.result.error ?? "Inbox evaluation failed.");
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
     }
   }
   async function confirmCategory(email: EmailEvaluation) {
@@ -123,7 +131,7 @@ export default function EmailAssistantPage() {
         },
       );
       const payload = (await response.json()) as {
-        result?: { category: string };
+        result?: { category: string; suggestedAction?: string };
         error?: string;
       };
       if (!response.ok || !payload.result)
@@ -135,6 +143,8 @@ export default function EmailAssistantPage() {
                 ...item,
                 category: payload.result?.category,
                 suggestedCategory: undefined,
+                categoryStatus: "confirmed",
+                suggestedAction: payload.result?.suggestedAction,
               }
             : item,
         ),
@@ -148,6 +158,19 @@ export default function EmailAssistantPage() {
     } finally {
       setConfirmingCategory(undefined);
     }
+  }
+  async function applyAction(email: EmailEvaluation) {
+    setApplyingAction(email.messageId);
+    try {
+      const response = await fetch("/api/plugins/email-assistant/apply-action", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId: email.messageId }),
+      });
+      const payload = (await response.json()) as { result?: { appliedAt: string }; error?: string };
+      if (!response.ok || !payload.result) throw new Error(payload.error ?? "Action failed.");
+      setEvaluations((current) => current?.map((item) => item.messageId === email.messageId ? { ...item, actionAppliedAt: payload.result?.appliedAt } : item));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed."); }
+    finally { setApplyingAction(undefined); }
   }
 
   return (
@@ -188,30 +211,21 @@ export default function EmailAssistantPage() {
           >
             {isRunning ? "Evaluating inbox…" : "Evaluate 10 more emails"}
           </button>
+          <button
+            className="reconnect-gmail"
+            disabled={isDisconnecting}
+            onClick={() => void disconnectGmail()}
+            type="button"
+          >
+            {isDisconnecting ? "Disconnecting…" : "Reconnect Gmail"}
+          </button>
         </>
-      )}
-      {progress?.state === "running" && (
-        <div className="evaluation-progress" aria-live="polite">
-          <div>
-            <strong>
-              {progress.total
-                ? `${progress.read} of ${progress.total} emails read`
-                : "Finding inbox emails…"}
-            </strong>
-            <span>
-              {progress.total
-                ? `${Math.round((progress.read / progress.total) * 100)}%`
-                : ""}
-            </span>
-          </div>
-          <progress value={progress.read} max={Math.max(progress.total, 1)} />
-        </div>
       )}
       {error && <div className="notice error">{error}</div>}
       {evaluations && (
         <div className="email-results">
           <p className="results-summary">
-            {resultSummary(evaluations, progress?.state)}
+            {resultSummary(evaluations)}
           </p>
           {evaluations.length > 0 && (
             <div className="email-evaluation-list">
@@ -219,7 +233,9 @@ export default function EmailAssistantPage() {
                 <EmailEvaluationCard
                   email={email}
                   confirming={confirmingCategory === email.messageId}
+                  applying={applyingAction === email.messageId}
                   onConfirm={confirmCategory}
+                  onApply={applyAction}
                   key={email.messageId}
                 />
               ))}
@@ -234,11 +250,15 @@ export default function EmailAssistantPage() {
 function EmailEvaluationCard({
   email,
   confirming,
+  applying,
   onConfirm,
+  onApply,
 }: {
   email: EmailEvaluation;
   confirming: boolean;
+  applying: boolean;
   onConfirm(email: EmailEvaluation): void;
+  onApply(email: EmailEvaluation): void;
 }) {
   return (
     <article className="email-evaluation">
@@ -249,7 +269,24 @@ function EmailEvaluationCard({
             {formatDate(email.receivedAt)}
           </time>
         </div>
-        {email.suggestedCategory ? (
+        {email.categoryStatus === "processing" ? (
+          <span className="email-category processing">In processing</span>
+        ) : email.categoryStatus === "failed" ? (
+          <span className="email-category failed" title={email.categoryError}>
+            Category evaluation failed
+          </span>
+        ) : email.suggestedCategory && email.categoryStatus === "suggested-new" ? (
+          <button
+            className="email-category suggested"
+            disabled={confirming}
+            onClick={() => onConfirm(email)}
+            type="button"
+          >
+            {confirming
+              ? "Creating…"
+              : `Create “${email.suggestedCategory}”`}
+          </button>
+        ) : email.suggestedCategory ? (
           <button
             className="email-category suggested"
             disabled={confirming}
@@ -258,7 +295,7 @@ function EmailEvaluationCard({
           >
             {confirming
               ? "Confirming…"
-              : `Confirm “${email.suggestedCategory}”`}
+              : `Confirm existing “${email.suggestedCategory}”`}
           </button>
         ) : (
           <span className="email-category">
@@ -268,6 +305,12 @@ function EmailEvaluationCard({
       </div>
       <h3>{email.subject || "No subject"}</h3>
       <p>{email.description}</p>
+      {email.suggestedAction && (
+        <p className="email-action">
+          {email.actionAppliedAt ? "Action applied: " : "Suggested action: "}{formatAction(email.suggestedAction)}
+          {!email.actionAppliedAt && <button className="email-category suggested" disabled={applying} onClick={() => onApply(email)} type="button">{applying ? "Applying…" : "Apply action"}</button>}
+        </p>
+      )}
     </article>
   );
 }
@@ -277,12 +320,21 @@ function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
+function formatAction(value: string): string {
+  if (value === "star") return "Star";
+  if (value === "trash") return "Move to trash";
+  return value.startsWith("archive:")
+    ? `Archive in ${value.slice("archive:".length)}`
+    : value;
+}
 function resultSummary(
   evaluations: EmailEvaluation[],
-  state: InboxEvaluationProgress["state"] | undefined,
 ): string {
-  if (state === "running")
-    return `${evaluations.length} result${evaluations.length === 1 ? "" : "s"} ready.`;
+  const processing = evaluations.filter(
+    (email) => email.categoryStatus === "processing",
+  ).length;
+  if (processing)
+    return `${processing} category evaluation${processing === 1 ? " is" : "s are"} in processing.`;
   if (evaluations.length === 0) return "No inbox messages found.";
   return `${evaluations.length} saved inbox message${evaluations.length === 1 ? "" : "s"}.`;
 }
