@@ -114,8 +114,17 @@ describe('Jojo Claw HTTP API', () => {
       assert.match(prompts[1], /Available categories:\n- Work\n- Personal/)
       assert.match(prompts[2], /World/)
       assert.match(prompts[3], /Available categories:\n- Work\n- Personal/)
-      const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters' }) })
+      const saved = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
+      assert.deepEqual((await saved.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['one', 'two'])
+      const nextBatch = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
+      const nextBatchId = (await nextBatch.json() as { result: { evaluationId: string } }).result.evaluationId
+      assert.deepEqual(await waitForEvaluation(baseUrl, nextBatchId), {
+        state: 'complete', total: 0, read: 0, evaluations: [],
+      })
+      const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters', messageId: 'two' }) })
       assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters' } })
+      const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
+      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 3', category: 'Newsletters' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
       assert.deepEqual(categories?.value, [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }, { name: 'Newsletters', action: '' }])

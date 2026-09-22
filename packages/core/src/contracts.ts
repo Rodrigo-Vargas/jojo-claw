@@ -36,6 +36,16 @@ export interface EmailAssistantOAuthTransaction {
   createdAt: number
 }
 
+export interface EmailAssistantEvaluation {
+  messageId: string
+  from: string
+  subject: string
+  receivedAt: string
+  description: string
+  category?: string
+  suggestedCategory?: string
+}
+
 /** Persistence operations owned and implemented by the database platform plugin. */
 export interface DatabaseOperations {
   emailAssistant: {
@@ -45,6 +55,9 @@ export interface DatabaseOperations {
     deleteExpiredOAuthTransactions(before: number): void
     createOAuthTransaction(state: string, transaction: EmailAssistantOAuthTransaction): void
     consumeOAuthTransaction(state: string): EmailAssistantOAuthTransaction | undefined
+    listEvaluations(): EmailAssistantEvaluation[]
+    saveEvaluation(evaluation: EmailAssistantEvaluation): void
+    confirmEvaluationCategory(messageId: string, category: string): void
   }
 }
 

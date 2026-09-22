@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./inboxMessageIds": "./src/inboxMessageIds.ts",
     "./web": "./src/web.tsx"
   },
   "dependencies": {

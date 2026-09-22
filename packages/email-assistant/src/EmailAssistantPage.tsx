@@ -17,6 +17,9 @@ interface InboxEvaluationProgress {
   error?: string
 }
 
+/** Renders saved and newly evaluated Gmail Inbox messages.
+ * Example: `<EmailAssistantPage />`.
+ */
 export default function EmailAssistantPage() {
   const [connection, setConnection] = useState<{
     configured: boolean
@@ -29,7 +32,7 @@ export default function EmailAssistantPage() {
   const [progress, setProgress] = useState<InboxEvaluationProgress>()
   const [confirmingCategory, setConfirmingCategory] = useState<string>()
 
-  useEffect(() => { void loadConnection() }, [])
+  useEffect(() => { void Promise.all([loadConnection(), loadEvaluations()]) }, [])
 
   async function loadConnection() {
     try {
@@ -40,11 +43,19 @@ export default function EmailAssistantPage() {
       if (response.ok && payload.result) setConnection(payload.result)
     } catch { /* The evaluation action exposes connection failures with a useful message. */ }
   }
+  async function loadEvaluations() {
+    try {
+      const response = await fetch('/api/plugins/email-assistant/evaluations')
+      const payload = await response.json() as { result?: EmailEvaluation[] }
+      if (response.ok && payload.result) setEvaluations(payload.result)
+    } catch {
+      /* Loading saved evaluations is optional while the connection is being configured. */
+    }
+  }
 
   async function evaluateInbox() {
     setIsRunning(true)
     setError(undefined)
-    setEvaluations([])
     setProgress({ state: 'running', total: 0, read: 0, evaluations: [] })
     try {
       const response = await fetch(
@@ -65,11 +76,13 @@ export default function EmailAssistantPage() {
   }
   async function watchEvaluation(evaluationId: string) {
     while (true) {
-      const response = await fetch(`/api/plugins/email-assistant/evaluation-progress?evaluationId=${encodeURIComponent(evaluationId)}`)
+      const url = `/api/plugins/email-assistant/evaluation-progress?evaluationId=${encodeURIComponent(evaluationId)}`
+      const response = await fetch(url)
       const payload = await response.json() as { result?: InboxEvaluationProgress; error?: string }
       if (!response.ok || !payload.result) throw new Error(payload.error ?? 'Inbox evaluation failed.')
       setProgress(payload.result)
-      setEvaluations(payload.result.evaluations)
+      const newEvaluations = payload.result.evaluations
+      setEvaluations((current) => mergeEvaluations(current ?? [], newEvaluations))
       if (payload.result.state === 'complete') {
         return
       }
@@ -84,7 +97,7 @@ export default function EmailAssistantPage() {
     try {
       const response = await fetch('/api/plugins/email-assistant/confirm-category', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ category: email.suggestedCategory }),
+        body: JSON.stringify({ category: email.suggestedCategory, messageId: email.messageId }),
       })
       const payload = await response.json() as { result?: { category: string }; error?: string }
       if (!response.ok || !payload.result) throw new Error(payload.error ?? 'Category confirmation failed.')
@@ -99,7 +112,7 @@ export default function EmailAssistantPage() {
     <div className="intro"><div className="plugin-icon">✉</div><div><h2>Evaluate your inbox</h2><p>Recent inbox messages are summarized and classified one at a time. Set the available categories in Settings.</p></div></div>
     {!connection?.configured && <p className="notice error">Set the Google OAuth client ID in Secrets before connecting Gmail.</p>}
     {connection?.configured && !connection.connected && <a className="evaluate-inbox" href="/api/plugins/email-assistant/connect">Connect Gmail</a>}
-    {connection?.connected && <><p className="connection-note">Connected as {connection.email ?? 'your Google account'}.</p><button className="evaluate-inbox" onClick={() => void evaluateInbox()} disabled={isRunning} type="button">{isRunning ? 'Evaluating inbox…' : 'Evaluate inbox'}</button></>}
+    {connection?.connected && <><p className="connection-note">Connected as {connection.email ?? 'your Google account'}.</p><button className="evaluate-inbox" onClick={() => void evaluateInbox()} disabled={isRunning} type="button">{isRunning ? 'Evaluating inbox…' : 'Evaluate 10 more emails'}</button></>}
     {progress?.state === 'running' && <div className="evaluation-progress" aria-live="polite"><div><strong>{progress.total ? `${progress.read} of ${progress.total} emails read` : 'Finding inbox emails…'}</strong><span>{progress.total ? `${Math.round((progress.read / progress.total) * 100)}%` : ''}</span></div><progress value={progress.read} max={Math.max(progress.total, 1)} /></div>}
     {error && <div className="notice error">{error}</div>}
     {evaluations && <div className="email-results"><p className="results-summary">{resultSummary(evaluations, progress?.state)}</p>
@@ -129,5 +142,15 @@ function formatDate(value: string): string {
 function resultSummary(evaluations: EmailEvaluation[], state: InboxEvaluationProgress['state'] | undefined): string {
   if (state === 'running') return `${evaluations.length} result${evaluations.length === 1 ? '' : 's'} ready.`
   if (evaluations.length === 0) return 'No inbox messages found.'
-  return `${evaluations.length} inbox message${evaluations.length === 1 ? '' : 's'} evaluated.`
+  return `${evaluations.length} saved inbox message${evaluations.length === 1 ? '' : 's'}.`
+}
+function mergeEvaluations(
+  current: EmailEvaluation[],
+  incoming: EmailEvaluation[],
+): EmailEvaluation[] {
+  const evaluations = new Map(current.map((email) => [email.messageId, email]))
+  for (const email of incoming) evaluations.set(email.messageId, email)
+  return [...evaluations.values()].sort(
+    (a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.messageId.localeCompare(b.messageId),
+  )
 }
