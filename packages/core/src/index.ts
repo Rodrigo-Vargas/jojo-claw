@@ -1,2 +1,2 @@
 export { pluginRedirect } from './contracts.js'
-export type { DatabaseOperations, EmailAssistantConnection, EmailAssistantOAuthTransaction, GenerateTextInput, GenerateTextResult, LlmProvider, PlatformPlugin, PluginContext, PluginManifest, PluginPage, PluginRoute, PluginRouteInput, PluginRouteRedirect, SecretDefinition, WebPlatformPlugin, WebPluginContext } from './contracts.js'
+export type { DatabaseOperations, EmailAssistantConnection, EmailAssistantOAuthTransaction, GenerateTextInput, GenerateTextResult, JsonSettingValue, LlmProvider, PlatformPlugin, PluginContext, PluginManifest, PluginPage, PluginRoute, PluginRouteInput, PluginRouteRedirect, PluginSettingDefinition, PluginSettingValue, SecretDefinition, WebPlatformPlugin, WebPluginContext } from './contracts.js'

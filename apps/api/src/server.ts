@@ -4,6 +4,7 @@ import { type DatabaseOperations, type LlmProvider, type PlatformPlugin, type Pl
 import { createDatabasePlugin } from '@jojo-claw/database-plugin'
 import { OllamaProvider } from '@jojo-claw/ollama'
 import { createSecretsPlugin, SecretRegistry } from '@jojo-claw/secrets-plugin'
+import { createSettingsPlugin, SettingsRegistry } from '@jojo-claw/settings-plugin'
 import { createEmailAssistantPlugin } from '@jojo-claw/email-assistant'
 import { textPlugin } from '@jojo-claw/text-plugin'
 
@@ -11,6 +12,7 @@ export interface JojoClawOptions {
   provider?: LlmProvider
   plugins?: PlatformPlugin[]
   secretFilePath?: string
+  settingsFilePath?: string
   databasePath?: string
 }
 
@@ -18,13 +20,17 @@ export interface JojoClawOptions {
 export function createJojoClawServer(options: JojoClawOptions = {}) {
   const provider = options.provider ?? new OllamaProvider()
   const secrets = new SecretRegistry(options.secretFilePath ?? resolve(process.cwd(), '.env'))
+  const settings = new SettingsRegistry(options.settingsFilePath ?? resolve(process.cwd(), '.jojo-claw', 'settings.json'))
   const database = createDatabasePlugin({ storagePath: options.databasePath })
   const plugins = [
     database.plugin,
     createSecretsPlugin(secrets),
+    createSettingsPlugin(settings),
     ...(options.plugins ?? [textPlugin, createEmailAssistantPlugin()]),
   ]
-  const routes = mountPlugins(plugins, provider, secrets, database.operations)
+  const routes = mountPlugins(plugins, {
+    provider, secrets, settings, database: database.operations,
+  })
   return createServer(async (request, response) => {
     setCors(response)
     if (request.method === 'OPTIONS') return response.end()
@@ -49,24 +55,31 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
   })
 }
 
+interface PluginServices {
+  provider: LlmProvider
+  secrets: SecretRegistry
+  settings: SettingsRegistry
+  database: DatabaseOperations
+}
+
 function mountPlugins(
-  plugins: PlatformPlugin[],
-  provider: LlmProvider,
-  secrets: SecretRegistry,
-  database: DatabaseOperations,
+  plugins: PlatformPlugin[], services: PluginServices,
 ): Map<string, PluginRoute> {
   const routes = new Map<string, PluginRoute>()
   for (const plugin of plugins) plugin.register({
-    generateText: (input) => provider.generate(input),
-    database,
+    generateText: (input) => services.provider.generate(input),
+    database: services.database,
     registerRoute: (route) => {
       if (!route.path.startsWith('/')) throw new Error(`Plugin route for ${plugin.manifest.id} must start with '/'.`)
       const key = `${route.method} /api/plugins/${plugin.manifest.id}${route.path}`
       if (routes.has(key)) throw new Error(`Duplicate plugin route: ${key}`)
       routes.set(key, route)
     },
-    registerSecret: (secret) => secrets.register(plugin.manifest.id, secret),
-    getSecret: (id) => secrets.get(plugin.manifest.id, id),
+    registerSecret: (secret) => services.secrets.register(plugin.manifest.id, secret),
+    getSecret: (id) => services.secrets.get(plugin.manifest.id, id),
+    registerSetting: (setting) => services.settings.register(plugin.manifest.id, setting),
+    getSetting: (id) => services.settings.get(plugin.manifest.id, id),
+    setSetting: (id, value) => services.settings.set(plugin.manifest.id, id, value),
   })
   return routes
 }

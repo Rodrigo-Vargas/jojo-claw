@@ -56,6 +56,15 @@ In the **Secrets** page, configure `email-assistant/google-client-id`. Set `emai
 
 The current Secrets plugin keeps values only for the API process lifetime. After an API restart, enter the same Google OAuth values again before using the saved Gmail connection; a durable secret vault is a remaining platform enhancement.
 
+## Plugin settings
+
+`@jojo-claw/settings-plugin` gives server plugins typed, durable local settings and contributes the **Settings** page. During `register()`, a plugin declares settings with `context.registerSetting()` and reads their configured value with `context.getSetting()`. Supported types are `string`, `number`, `boolean`, `string-list`, and `json`; values are validated against the declaration and stored in `.jojo-claw/settings.json`. JSON settings are edited as formatted JSON in the Settings page.
+
+```ts
+context.registerSetting({ id: 'temperature', name: 'Temperature', type: 'number', defaultValue: 0.7 })
+const temperature = context.getSetting('temperature')
+```
+
 ## Structure
 
 ```text
@@ -66,6 +75,7 @@ packages/
   core/                server and browser plugin contracts
   database-plugin/     SQLite configuration and platform schema
   ollama/              Ollama provider adapter
+  settings-plugin/     typed plugin preferences, persistence, and browser page
   text-plugin/         first local package using the AI capability
 ```
 

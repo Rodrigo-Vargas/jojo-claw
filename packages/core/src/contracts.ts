@@ -55,6 +55,20 @@ export interface SecretDefinition {
   description?: string
 }
 
+export type JsonSettingValue = null | boolean | number | string | JsonSettingValue[] | {
+  [key: string]: JsonSettingValue
+}
+export type PluginSettingValue = boolean | number | string | string[] | JsonSettingValue
+
+/** A typed preference that a plugin asks the platform to persist for the local user. */
+export interface PluginSettingDefinition {
+  id: string
+  name: string
+  description?: string
+  type: 'boolean' | 'number' | 'string' | 'string-list' | 'json'
+  defaultValue: PluginSettingValue
+}
+
 /** A route contributed by an installed plugin package. */
 export interface PluginRoute {
   method: 'GET' | 'POST'
@@ -87,6 +101,9 @@ export interface PluginContext {
   registerRoute(route: PluginRoute): void
   registerSecret(secret: SecretDefinition): void
   getSecret(id: string): string | undefined
+  registerSetting(setting: PluginSettingDefinition): void
+  getSetting(id: string): PluginSettingValue
+  setSetting(id: string, value: PluginSettingValue): void
 }
 
 /** A Node package that extends the platform at API composition time. */
