@@ -9,6 +9,15 @@ import { createEmailAssistantPlugin } from '@jojo-claw/email-assistant'
 import { createJojoClawServer } from '../src/server.js'
 
 function temporarySecretFile(): { directory: string; path: string } { const directory = mkdtempSync(join(tmpdir(), 'jojo-claw-secrets-')); return { directory, path: join(directory, '.env') } }
+async function waitForEvaluation(baseUrl: string, evaluationId: string): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const response = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluation-progress?evaluationId=${evaluationId}`)
+    const payload = await response.json() as { result: Record<string, unknown> }
+    if (payload.result.state !== 'running') return payload.result
+    await new Promise<void>((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('Inbox evaluation did not complete.')
+}
 
 describe('Jojo Claw HTTP API', () => {
   it('mounts the installed text package and lets it use the platform provider', async () => {
@@ -23,6 +32,7 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual(await installed.json(), { plugins: [
         { id: 'database', name: 'Database', description: 'Configures the local database connection and manages platform schema.' },
         { id: 'secrets', name: 'Secrets', description: 'Lets you configure secrets requested by local plugins.' },
+        { id: 'settings', name: 'Settings', description: 'Stores and presents settings registered by local plugins.' },
         { id: 'text', name: 'Text generation', description: 'Generates text using the platform-managed LLM provider.' },
         { id: 'email-assistant', name: 'Email assistant', description: 'Evaluates recent Gmail inbox messages into concise descriptions.' },
       ] })
@@ -32,7 +42,37 @@ describe('Jojo Claw HTTP API', () => {
     } finally { server.close(); await once(server, 'close') }
   })
 
-  it('fetches each inbox email server-side and evaluates it separately', async () => {
+  it('lists, validates, and restores settings registered by another plugin', async () => {
+    const storage = temporarySecretFile()
+    let observedSetting: number | undefined
+    const plugin: PlatformPlugin = {
+      manifest: { id: 'summarizer', name: 'Summarizer', description: 'Summarizes notes.' },
+      register(context) {
+        context.registerSetting({ id: 'max-items', name: 'Maximum items', description: 'How many notes to summarize.', type: 'number', defaultValue: 3 })
+        context.registerRoute({ method: 'POST', path: '/configured', async handle() { observedSetting = context.getSetting('max-items') as number; return { maxItems: observedSetting } } })
+      },
+    }
+    const options = { provider: { generate: async () => ({ text: 'unused', model: 'test' }) }, plugins: [plugin], settingsFilePath: storage.path }
+    let server = createJojoClawServer(options).listen(0)
+    await once(server, 'listening')
+    try {
+      let address = server.address(); assert(address && typeof address !== 'string')
+      const baseUrl = `http://127.0.0.1:${address.port}`
+      const listed = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
+      assert.deepEqual(await listed.json(), { result: { settings: [{ pluginId: 'summarizer', id: 'max-items', name: 'Maximum items', description: 'How many notes to summarize.', type: 'number', defaultValue: 3, value: 3 }] } })
+      const updated = await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'summarizer', id: 'max-items', value: 8 }) })
+      assert.deepEqual(await updated.json(), { result: { value: 8 } })
+      assert.deepEqual(await (await fetch(`${baseUrl}/api/plugins/summarizer/configured`, { method: 'POST' })).json(), { result: { maxItems: 8 } })
+      assert.equal(observedSetting, 8)
+      server.close(); await once(server, 'close')
+      server = createJojoClawServer(options).listen(0); await once(server, 'listening')
+      address = server.address(); assert(address && typeof address !== 'string')
+      const restored = await fetch(`http://127.0.0.1:${address.port}/api/plugins/settings/list`, { method: 'POST' })
+      assert.equal((await restored.json() as { result: { settings: Array<{ value: number }> } }).result.settings[0].value, 8)
+    } finally { if (server.listening) { server.close(); await once(server, 'close') }; rmSync(storage.directory, { recursive: true, force: true }) }
+  })
+
+  it('summarizes and classifies each inbox email using configured categories', async () => {
     const prompts: string[] = []
     const gmailFetch: typeof fetch = async (input) => {
       const url = String(input)
@@ -44,7 +84,7 @@ describe('Jojo Claw HTTP API', () => {
     }
     const provider: LlmProvider = { generate: async (input) => {
       prompts.push(input.prompt)
-      return { text: `Description ${prompts.length}`, model: 'test-model' }
+      return { text: input.prompt.includes('Available categories:') ? (input.prompt.includes('Hello') ? 'Work' : 'Newsletters') : `Description ${prompts.length}`, model: 'test-model' }
     } }
     const secretFile = temporarySecretFile()
     const server = createJojoClawServer({ provider, plugins: [createEmailAssistantPlugin({ fetch: gmailFetch })], secretFilePath: secretFile.path, databasePath: ':memory:' }).listen(0)
@@ -53,6 +93,7 @@ describe('Jojo Claw HTTP API', () => {
     const baseUrl = `http://127.0.0.1:${address.port}`
     try {
       await fetch(`${baseUrl}/api/plugins/secrets/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'google-client-id', value: 'client-id' }) })
+      await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'categories', value: [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }] }) })
       const connect = await fetch(`${baseUrl}/api/plugins/email-assistant/connect`, { redirect: 'manual' })
       assert.equal(connect.status, 302)
       const authorization = new URL(connect.headers.get('location') ?? '')
@@ -60,13 +101,24 @@ describe('Jojo Claw HTTP API', () => {
       assert.equal(callback.status, 302)
       const response = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
       assert.equal(response.status, 200)
-      assert.deepEqual(await response.json(), { result: { evaluations: [
-        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1' },
-        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2' },
-      ] } })
-      assert.equal(prompts.length, 2)
+      const started = await response.json() as { result: { evaluationId: string } }
+      assert.match(started.result.evaluationId, /^[a-f0-9]{32}$/)
+      assert.deepEqual(await waitForEvaluation(baseUrl, started.result.evaluationId), {
+        state: 'complete', total: 2, read: 2, evaluations: [
+        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', category: 'Work' },
+        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 3', suggestedCategory: 'Newsletters' },
+      ],
+      })
+      assert.equal(prompts.length, 4)
       assert.match(prompts[0], /Hello/)
-      assert.match(prompts[1], /World/)
+      assert.match(prompts[1], /Available categories:\n- Work\n- Personal/)
+      assert.match(prompts[2], /World/)
+      assert.match(prompts[3], /Available categories:\n- Work\n- Personal/)
+      const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters' }) })
+      assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters' } })
+      const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
+      const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
+      assert.deepEqual(categories?.value, [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }, { name: 'Newsletters', action: '' }])
     } finally { server.close(); await once(server, 'close'); rmSync(secretFile.directory, { recursive: true, force: true }) }
   })
 
