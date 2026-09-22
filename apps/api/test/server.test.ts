@@ -60,6 +60,39 @@ describe('Jojo Claw HTTP API', () => {
     } finally { server.close(); await once(server, 'close') }
   })
 
+  it('reports queued prompt jobs and their final statuses', async () => {
+    let releaseGeneration: (() => void) | undefined
+    let markStarted: (() => void) | undefined
+    const generationStarted = new Promise<void>((resolve) => { markStarted = resolve })
+    const generationRelease = new Promise<void>((resolve) => { releaseGeneration = resolve })
+    const provider: LlmProvider = {
+      generate: async (input) => {
+        markStarted?.()
+        await generationRelease
+        return { text: input.prompt, model: 'test-model' }
+      },
+    }
+    const server = createJojoClawServer({ provider }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      const first = fetch(`${baseUrl}/api/plugins/text/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'First request' }) })
+      await generationStarted
+      const second = fetch(`${baseUrl}/api/plugins/text/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Second request' }) })
+      await new Promise<void>((resolve) => setTimeout(resolve, 5))
+      const active = await fetch(`${baseUrl}/api/prompt-queue`)
+      assert.deepEqual(await active.json(), { items: [
+        { id: 1, pluginName: 'Text generation', prompt: 'First request', status: 'running' },
+        { id: 2, pluginName: 'Text generation', prompt: 'Second request', status: 'queued' },
+      ] })
+      releaseGeneration?.()
+      await Promise.all([first, second])
+      const completed = await fetch(`${baseUrl}/api/prompt-queue`)
+      assert.deepEqual((await completed.json() as { items: Array<{ status: string }> }).items.map((item) => item.status), ['succeeded', 'succeeded'])
+    } finally { server.close(); await once(server, 'close') }
+  })
+
   it('returns tool output to the model before returning its final answer', async () => {
     const toolRequests: GenerateWithToolsInput[] = []
     const provider: LlmProvider = {

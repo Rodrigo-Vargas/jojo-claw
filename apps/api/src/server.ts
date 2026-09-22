@@ -21,6 +21,7 @@ import {
 import { createEmailAssistantPlugin } from "@jojo-claw/email-assistant";
 import { textPlugin } from "@jojo-claw/text-plugin";
 import { toolCallingPlugin } from "@jojo-claw/tool-calling-plugin";
+import { PromptQueue } from "./PromptQueue.js";
 
 export interface JojoClawOptions {
   provider?: LlmProvider;
@@ -41,6 +42,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       resolve(process.cwd(), ".jojo-claw", "settings.json"),
   );
   const database = createDatabasePlugin({ storagePath: options.databasePath });
+  const promptQueue = new PromptQueue();
   const plugins = [
     database.plugin,
     createSecretsPlugin(secrets),
@@ -52,6 +54,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
     secrets,
     settings,
     database: database.operations,
+    promptQueue,
   });
   return createServer(async (request, response) => {
     setCors(response);
@@ -67,6 +70,8 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
         return sendJson(response, 200, {
           plugins: plugins.map((plugin) => plugin.manifest),
         });
+      if (request.method === "GET" && url.pathname === "/api/prompt-queue")
+        return sendJson(response, 200, { items: promptQueue.snapshot() });
       const route = routes.get(`${request.method ?? "GET"} ${url.pathname}`);
       if (route) {
         const result = await route.handle({
@@ -102,6 +107,7 @@ interface PluginServices {
   secrets: SecretRegistry;
   settings: SettingsRegistry;
   database: DatabaseOperations;
+  promptQueue: PromptQueue;
 }
 
 function mountPlugins(
@@ -111,11 +117,20 @@ function mountPlugins(
   const routes = new Map<string, PluginRoute>();
   for (const plugin of plugins)
     plugin.register({
-      generateText: (input) => services.provider.generate(input),
+      generateText: (input) =>
+        services.promptQueue.enqueue(
+          plugin.manifest.name,
+          input.prompt,
+          () => services.provider.generate(input),
+        ),
       generateWithTools: (input) => {
         if (!services.provider.generateWithTools)
           throw new Error("The configured LLM provider does not support tool calling.");
-        return services.provider.generateWithTools(input);
+        return services.promptQueue.enqueue(
+          plugin.manifest.name,
+          promptFromMessages(input.messages),
+          () => services.provider.generateWithTools!(input),
+        );
       },
       database: services.database,
       registerRoute: (route) => {
@@ -137,6 +152,14 @@ function mountPlugins(
         services.settings.set(plugin.manifest.id, id, value),
     });
   return routes;
+}
+
+function promptFromMessages(messages: { role: string; content: string }[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") return message.content;
+  }
+  return "Tool-assisted generation";
 }
 
 function isPluginRouteRedirect(value: unknown): value is PluginRouteRedirect {
