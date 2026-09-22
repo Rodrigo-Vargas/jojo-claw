@@ -19,8 +19,38 @@ export interface GenerateTextResult {
   model: string
 }
 
+/** A JSON-schema-shaped description of a function the model may request. */
+export interface ToolDefinition {
+  name: string
+  description: string
+  parameters: JsonSettingValue
+}
+
+/** A provider-issued request to run one registered tool. */
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: Record<string, JsonSettingValue>
+}
+
+export type ToolMessage =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; content: string; toolCallId: string }
+
+export interface GenerateWithToolsInput {
+  messages: ToolMessage[]
+  tools: ToolDefinition[]
+  model?: string
+}
+
+export interface GenerateWithToolsResult extends GenerateTextResult {
+  toolCalls: ToolCall[]
+}
+
 export interface LlmProvider {
   generate(input: GenerateTextInput): Promise<GenerateTextResult>
+  generateWithTools?(input: GenerateWithToolsInput): Promise<GenerateWithToolsResult>
 }
 
 export interface EmailAssistantConnection {
@@ -111,6 +141,7 @@ export function pluginRedirect(location: string, status: 302 | 303 = 302): Plugi
 /** Platform capabilities made available to local plugin packages. */
 export interface PluginContext {
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>
+  generateWithTools(input: GenerateWithToolsInput): Promise<GenerateWithToolsResult>
   database: DatabaseOperations
   registerRoute(route: PluginRoute): void
   registerSecret(secret: SecretDefinition): void

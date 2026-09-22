@@ -3,6 +3,7 @@ import { textWebPlugin } from "@jojo-claw/text-plugin/web";
 import { secretsWebPlugin } from "@jojo-claw/secrets-plugin/web";
 import { settingsWebPlugin } from "@jojo-claw/settings-plugin/web";
 import { emailAssistantWebPlugin } from "@jojo-claw/email-assistant/web";
+import { toolCallingWebPlugin } from "@jojo-claw/tool-calling-plugin/web";
 import { mountWebPlugins } from "./plugin-registry.js";
 
 interface Plugin {
@@ -14,6 +15,7 @@ interface Plugin {
 // Installed browser plugins are deliberately composed here at build time.
 const pages = mountWebPlugins([
   textWebPlugin,
+  toolCallingWebPlugin,
   emailAssistantWebPlugin,
   secretsWebPlugin,
   settingsWebPlugin,

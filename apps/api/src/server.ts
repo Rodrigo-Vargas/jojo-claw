@@ -20,6 +20,7 @@ import {
 } from "@jojo-claw/settings-plugin";
 import { createEmailAssistantPlugin } from "@jojo-claw/email-assistant";
 import { textPlugin } from "@jojo-claw/text-plugin";
+import { toolCallingPlugin } from "@jojo-claw/tool-calling-plugin";
 
 export interface JojoClawOptions {
   provider?: LlmProvider;
@@ -44,7 +45,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
     database.plugin,
     createSecretsPlugin(secrets),
     createSettingsPlugin(settings),
-    ...(options.plugins ?? [textPlugin, createEmailAssistantPlugin()]),
+    ...(options.plugins ?? [textPlugin, toolCallingPlugin, createEmailAssistantPlugin()]),
   ];
   const routes = mountPlugins(plugins, {
     provider,
@@ -111,6 +112,11 @@ function mountPlugins(
   for (const plugin of plugins)
     plugin.register({
       generateText: (input) => services.provider.generate(input),
+      generateWithTools: (input) => {
+        if (!services.provider.generateWithTools)
+          throw new Error("The configured LLM provider does not support tool calling.");
+        return services.provider.generateWithTools(input);
+      },
       database: services.database,
       registerRoute: (route) => {
         if (!route.path.startsWith("/"))

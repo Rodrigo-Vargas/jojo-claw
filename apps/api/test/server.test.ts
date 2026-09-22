@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { LlmProvider, PlatformPlugin } from '@jojo-claw/core'
 import { createEmailAssistantPlugin } from '@jojo-claw/email-assistant'
+import type { GenerateWithToolsInput } from '@jojo-claw/core'
+import { OllamaProvider } from '@jojo-claw/ollama'
 import { createJojoClawServer } from '../src/server.js'
 
 function temporarySecretFile(): { directory: string; path: string } { const directory = mkdtempSync(join(tmpdir(), 'jojo-claw-secrets-')); return { directory, path: join(directory, '.env') } }
@@ -20,6 +22,21 @@ async function waitForEvaluation(baseUrl: string, evaluationId: string): Promise
 }
 
 describe('Jojo Claw HTTP API', () => {
+  it('adapts platform tool messages to Ollama’s function-call wire format', async () => {
+    const requests: unknown[] = []
+    const request: typeof fetch = async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)))
+      return Response.json({ model: 'llama-test', message: { content: '', tool_calls: [{ function: { name: 'calculate', arguments: { expression: '2 + 2' } } }] } })
+    }
+    const provider = new OllamaProvider({ fetch: request })
+    const result = await provider.generateWithTools({
+      messages: [{ role: 'user', content: 'Calculate 2 + 2.' }],
+      tools: [{ name: 'calculate', description: 'Does arithmetic.', parameters: { type: 'object' } }],
+    })
+    assert.deepEqual(result, { text: '', model: 'llama-test', toolCalls: [{ id: 'ollama-0', name: 'calculate', arguments: { expression: '2 + 2' } }] })
+    assert.deepEqual(requests, [{ model: 'llama3.2', messages: [{ role: 'user', content: 'Calculate 2 + 2.' }], tools: [{ type: 'function', function: { name: 'calculate', description: 'Does arithmetic.', parameters: { type: 'object' } } }], stream: false }])
+  })
+
   it('mounts the installed text package and lets it use the platform provider', async () => {
     const calls: unknown[] = []
     const provider: LlmProvider = { generate: async (input) => { calls.push(input); return { text: 'Platform response', model: 'test-model' } } }
@@ -34,11 +51,33 @@ describe('Jojo Claw HTTP API', () => {
         { id: 'secrets', name: 'Secrets', description: 'Lets you configure secrets requested by local plugins.' },
         { id: 'settings', name: 'Settings', description: 'Stores and presents settings registered by local plugins.' },
         { id: 'text', name: 'Text generation', description: 'Generates text using the platform-managed LLM provider.' },
+        { id: 'tool-calling', name: 'Tool calling', description: 'Lets the model request safe local tools and use their results.' },
         { id: 'email-assistant', name: 'Email assistant', description: 'Evaluates recent Gmail inbox messages into concise descriptions.' },
       ] })
       const generated = await fetch(`${baseUrl}/api/plugins/text/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Summarize this.', system: 'Be concise.' }) })
       assert.equal(generated.status, 200)
       assert.deepEqual(calls, [{ prompt: 'Summarize this.', system: 'Be concise.' }])
+    } finally { server.close(); await once(server, 'close') }
+  })
+
+  it('returns tool output to the model before returning its final answer', async () => {
+    const toolRequests: GenerateWithToolsInput[] = []
+    const provider: LlmProvider = {
+      generate: async () => ({ text: 'unused', model: 'test' }),
+      generateWithTools: async (input) => {
+        toolRequests.push(input)
+        if (toolRequests.length === 1)
+          return { text: '', model: 'test', toolCalls: [{ id: 'call-1', name: 'calculate', arguments: { expression: '6 * 7' } }] }
+        return { text: 'The answer is 42.', model: 'test', toolCalls: [] }
+      },
+    }
+    const server = createJojoClawServer({ provider }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/plugins/tool-calling/run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Calculate 6 times 7.' }) })
+      assert.deepEqual(await response.json(), { result: { text: 'The answer is 42.', model: 'test', calls: [{ id: 'call-1', name: 'calculate', arguments: { expression: '6 * 7' }, result: '42' }] } })
+      assert.deepEqual(toolRequests[1]?.messages.at(-1), { role: 'tool', content: '42', toolCallId: 'call-1' })
     } finally { server.close(); await once(server, 'close') }
   })
 
