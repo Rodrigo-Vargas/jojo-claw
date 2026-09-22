@@ -72,13 +72,14 @@ export type JsonSettingValue = null | boolean | number | string | JsonSettingVal
   [key: string]: JsonSettingValue
 }
 export type PluginSettingValue = boolean | number | string | string[] | JsonSettingValue
+export type PluginSettingType = 'boolean' | 'number' | 'string' | 'string-list' | 'json' | 'list'
 
 /** A typed preference that a plugin asks the platform to persist for the local user. */
 export interface PluginSettingDefinition {
   id: string
   name: string
   description?: string
-  type: 'boolean' | 'number' | 'string' | 'string-list' | 'json'
+  type: PluginSettingType
   defaultValue: PluginSettingValue
 }
 

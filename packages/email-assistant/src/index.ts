@@ -35,7 +35,7 @@ export function createEmailAssistantPlugin(options: EmailAssistantOptions = {}):
         id: 'categories',
         name: 'Email categories',
         description: 'Categories for inbox classification. Each item has a name and optional action.',
-        type: 'json',
+        type: 'list',
         defaultValue: [],
       })
       contextSecrets = { get: (id) => context.getSecret(id) }

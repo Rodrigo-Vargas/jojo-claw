@@ -72,6 +72,24 @@ describe('Jojo Claw HTTP API', () => {
     } finally { if (server.listening) { server.close(); await once(server, 'close') }; rmSync(storage.directory, { recursive: true, force: true }) }
   })
 
+  it('persists JSON list settings and rejects non-list values', async () => {
+    const storage = temporarySecretFile()
+    const plugin: PlatformPlugin = {
+      manifest: { id: 'filters', name: 'Filters', description: 'Filters messages.' },
+      register(context) { context.registerSetting({ id: 'rules', name: 'Rules', type: 'list', defaultValue: [] }) },
+    }
+    const server = createJojoClawServer({ provider: { generate: async () => ({ text: 'unused', model: 'test' }) }, plugins: [plugin], settingsFilePath: storage.path }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      const saved = await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'filters', id: 'rules', value: [{ field: 'from', value: 'news@example.com' }] }) })
+      assert.deepEqual(await saved.json(), { result: { value: [{ field: 'from', value: 'news@example.com' }] } })
+      const rejected = await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'filters', id: 'rules', value: { field: 'from' } }) })
+      assert.equal(rejected.ok, false)
+    } finally { server.close(); await once(server, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
+  })
+
   it('summarizes and classifies each inbox email using configured categories', async () => {
     const prompts: string[] = []
     const gmailFetch: typeof fetch = async (input) => {

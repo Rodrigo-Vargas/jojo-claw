@@ -58,7 +58,7 @@ The current Secrets plugin keeps values only for the API process lifetime. After
 
 ## Plugin settings
 
-`@jojo-claw/settings-plugin` gives server plugins typed, durable local settings and contributes the **Settings** page. During `register()`, a plugin declares settings with `context.registerSetting()` and reads their configured value with `context.getSetting()`. Supported types are `string`, `number`, `boolean`, `string-list`, and `json`; values are validated against the declaration and stored in `.jojo-claw/settings.json`. JSON settings are edited as formatted JSON in the Settings page.
+`@jojo-claw/settings-plugin` gives server plugins typed, durable local settings and contributes the **Settings** page. During `register()`, a plugin declares settings with `context.registerSetting()` and reads their configured value with `context.getSetting()`. Supported types are `string`, `number`, `boolean`, `string-list`, `json`, and `list`; values are validated against the declaration and stored in `.jojo-claw/settings.json`. A `list` is a JSON array, edited item-by-item with Add and Remove controls in the Settings page.
 
 ```ts
 context.registerSetting({ id: 'temperature', name: 'Temperature', type: 'number', defaultValue: 0.7 })

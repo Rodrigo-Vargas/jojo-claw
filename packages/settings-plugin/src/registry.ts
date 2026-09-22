@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { PluginSettingDefinition, PluginSettingValue } from '@jojo-claw/core'
+import type { JsonSettingValue, PluginSettingDefinition, PluginSettingValue } from '@jojo-claw/core'
 
 export interface ManagedSetting extends PluginSettingDefinition {
   pluginId: string
@@ -68,9 +68,13 @@ function isSettingValue(
     || (definition.type === 'boolean' && typeof value === 'boolean')
     || (definition.type === 'string-list' && isStringList(value))
     || (definition.type === 'json' && isJsonSettingValue(value))
+    || (definition.type === 'list' && isJsonSettingList(value))
 }
 function isValue(value: unknown): value is PluginSettingValue { return typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || isStringList(value) || isJsonSettingValue(value) }
 function isStringList(value: unknown): value is string[] { return Array.isArray(value) && value.every((item) => typeof item === 'string') }
+function isJsonSettingList(value: unknown): value is JsonSettingValue[] {
+  return Array.isArray(value) && value.every(isJsonSettingValue)
+}
 function isJsonSettingValue(value: unknown): value is PluginSettingValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
   if (typeof value === 'number') return Number.isFinite(value)
