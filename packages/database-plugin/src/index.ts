@@ -42,12 +42,13 @@ function initializeSchema(connection: DatabaseSync): void {
       message_id TEXT PRIMARY KEY, sender TEXT NOT NULL, subject TEXT NOT NULL,
       received_at TEXT NOT NULL, description TEXT NOT NULL, category TEXT,
       suggested_category TEXT, category_status TEXT NOT NULL DEFAULT 'processing',
-      category_error TEXT, suggested_action TEXT, action_applied_at TEXT
+      category_error TEXT, suggested_action TEXT, suggested_actions TEXT, action_applied_at TEXT
     );
   `);
   addEvaluationColumn(connection, "category_status TEXT NOT NULL DEFAULT 'processing'");
   addEvaluationColumn(connection, "category_error TEXT");
   addEvaluationColumn(connection, "suggested_action TEXT");
+  addEvaluationColumn(connection, "suggested_actions TEXT");
   addEvaluationColumn(connection, "action_applied_at TEXT");
   connection.exec(`
     UPDATE email_assistant_evaluation
@@ -174,7 +175,8 @@ export function createDatabasePlugin(
             `
           SELECT message_id, sender, subject, received_at, description, category,
                  suggested_category,
-                 category_status, category_error, suggested_action, action_applied_at
+                 category_status, category_error, suggested_action,
+                 suggested_actions, action_applied_at
           FROM email_assistant_evaluation
           ORDER BY received_at ASC, message_id ASC
         `,
@@ -190,6 +192,7 @@ export function createDatabasePlugin(
           category_status: EmailAssistantEvaluation["categoryStatus"];
           category_error: string | null;
           suggested_action: string | null;
+          suggested_actions: string | null;
           action_applied_at: string | null;
         }>;
         return rows.map((row) => ({
@@ -204,7 +207,7 @@ export function createDatabasePlugin(
             : {}),
           categoryStatus: row.category_status,
           ...(row.category_error ? { categoryError: row.category_error } : {}),
-          ...(row.suggested_action ? { suggestedAction: row.suggested_action } : {}),
+          ...suggestedActionsFromRow(row.suggested_actions, row.suggested_action),
           ...(row.action_applied_at ? { actionAppliedAt: row.action_applied_at } : {}),
         }));
       },
@@ -241,18 +244,22 @@ export function createDatabasePlugin(
       confirmEvaluationCategory(
         messageId: string,
         category: string,
-        suggestedAction?: string,
+        suggestedActions?: string[],
       ) {
         connection
           .prepare(
             `
           UPDATE email_assistant_evaluation
           SET category = ?, suggested_category = NULL, category_status = 'confirmed',
-              category_error = NULL, suggested_action = ?
+              category_error = NULL, suggested_action = NULL, suggested_actions = ?
           WHERE message_id = ?
         `,
           )
-          .run(category, suggestedAction ?? null, messageId);
+          .run(
+            category,
+            suggestedActions?.length ? JSON.stringify(suggestedActions) : null,
+            messageId,
+          );
       },
       saveCategorySuggestion(messageId, category, status) {
         connection
@@ -286,4 +293,18 @@ export function createDatabasePlugin(
     plugin: { manifest: databasePluginManifest, register() {} },
     operations,
   };
+}
+
+function suggestedActionsFromRow(
+  serializedActions: string | null,
+  legacyAction: string | null,
+): Pick<EmailAssistantEvaluation, "suggestedActions"> {
+  if (serializedActions) {
+    try {
+      const actions = JSON.parse(serializedActions) as unknown;
+      if (Array.isArray(actions) && actions.every((action) => typeof action === "string"))
+        return { suggestedActions: actions };
+    } catch { /* A malformed legacy value should not prevent loading evaluations. */ }
+  }
+  return legacyAction ? { suggestedActions: [legacyAction] } : {};
 }

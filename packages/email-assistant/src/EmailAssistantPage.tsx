@@ -1,19 +1,9 @@
 /* eslint-disable max-lines-per-function, max-len -- This page coordinates one inbox-evaluation workflow. */
 import { useEffect, useState } from "react";
-
-interface EmailEvaluation {
-  messageId: string;
-  from: string;
-  subject: string;
-  receivedAt: string;
-  description: string;
-  category?: string;
-  suggestedCategory?: string;
-  categoryStatus?: "processing" | "suggested-new" | "suggested-existing" | "confirmed" | "failed";
-  categoryError?: string;
-  suggestedAction?: string;
-  actionAppliedAt?: string;
-}
+import {
+  EmailEvaluationCard,
+  type EmailEvaluation,
+} from "./components/EmailEvaluationCard.js";
 
 /** Renders saved and newly evaluated Gmail Inbox messages.
  * Example: `<EmailAssistantPage />`.
@@ -131,7 +121,7 @@ export default function EmailAssistantPage() {
         },
       );
       const payload = (await response.json()) as {
-        result?: { category: string; suggestedAction?: string };
+        result?: { category: string; suggestedActions?: string[] };
         error?: string;
       };
       if (!response.ok || !payload.result)
@@ -144,7 +134,7 @@ export default function EmailAssistantPage() {
                 category: payload.result?.category,
                 suggestedCategory: undefined,
                 categoryStatus: "confirmed",
-                suggestedAction: payload.result?.suggestedAction,
+                suggestedActions: payload.result?.suggestedActions,
               }
             : item,
         ),
@@ -247,86 +237,6 @@ export default function EmailAssistantPage() {
   );
 }
 
-function EmailEvaluationCard({
-  email,
-  confirming,
-  applying,
-  onConfirm,
-  onApply,
-}: {
-  email: EmailEvaluation;
-  confirming: boolean;
-  applying: boolean;
-  onConfirm(email: EmailEvaluation): void;
-  onApply(email: EmailEvaluation): void;
-}) {
-  return (
-    <article className="email-evaluation">
-      <div className="email-evaluation-heading">
-        <div>
-          <strong>{email.from || "Unknown sender"}</strong>
-          <time dateTime={email.receivedAt}>
-            {formatDate(email.receivedAt)}
-          </time>
-        </div>
-        {email.categoryStatus === "processing" ? (
-          <span className="email-category processing">In processing</span>
-        ) : email.categoryStatus === "failed" ? (
-          <span className="email-category failed" title={email.categoryError}>
-            Category evaluation failed
-          </span>
-        ) : email.suggestedCategory && email.categoryStatus === "suggested-new" ? (
-          <button
-            className="email-category suggested"
-            disabled={confirming}
-            onClick={() => onConfirm(email)}
-            type="button"
-          >
-            {confirming
-              ? "Creating…"
-              : `Create “${email.suggestedCategory}”`}
-          </button>
-        ) : email.suggestedCategory ? (
-          <button
-            className="email-category suggested"
-            disabled={confirming}
-            onClick={() => onConfirm(email)}
-            type="button"
-          >
-            {confirming
-              ? "Confirming…"
-              : `Confirm existing “${email.suggestedCategory}”`}
-          </button>
-        ) : (
-          <span className="email-category">
-            {email.category ?? "Uncategorized"}
-          </span>
-        )}
-      </div>
-      <h3>{email.subject || "No subject"}</h3>
-      <p>{email.description}</p>
-      {email.suggestedAction && (
-        <p className="email-action">
-          {email.actionAppliedAt ? "Action applied: " : "Suggested action: "}{formatAction(email.suggestedAction)}
-          {!email.actionAppliedAt && <button className="email-category suggested" disabled={applying} onClick={() => onApply(email)} type="button">{applying ? "Applying…" : "Apply action"}</button>}
-        </p>
-      )}
-    </article>
-  );
-}
-
-function formatDate(value: string): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
-}
-function formatAction(value: string): string {
-  if (value === "star") return "Star";
-  if (value === "trash") return "Move to trash";
-  return value.startsWith("archive:")
-    ? `Archive in ${value.slice("archive:".length)}`
-    : value;
-}
 function resultSummary(
   evaluations: EmailEvaluation[],
 ): string {

@@ -164,8 +164,13 @@ describe('Jojo Claw HTTP API', () => {
 
   it('summarizes and classifies each inbox email using configured categories', async () => {
     const prompts: string[] = []
-    const gmailFetch: typeof fetch = async (input) => {
+    const gmailActions: Array<{ url: string; body?: string }> = []
+    const gmailFetch: typeof fetch = async (input, init) => {
       const url = String(input)
+      if (init?.method === 'POST' && url.includes('/messages/')) {
+        gmailActions.push({ url, body: typeof init.body === 'string' ? init.body : undefined })
+        return Response.json({ id: 'one' })
+      }
       if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600, scope: 'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/userinfo.email' })
       if (url === 'https://www.googleapis.com/oauth2/v2/userinfo') return Response.json({ email: 'person@example.com' })
       if (url.includes('/messages?')) return Response.json({ messages: [{ id: 'one' }, { id: 'two' }] })
@@ -215,6 +220,15 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual((await nextBatch.json() as { result: { evaluations: unknown[] } }).result.evaluations, [])
       const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters', messageId: 'two' }) })
       assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters' } })
+      await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'category-actions', value: [{ category: 'Work', actions: ['mark-read', 'trash'] }] }) })
+      const workConfirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Work', messageId: 'one' }) })
+      assert.deepEqual(await workConfirmation.json(), { result: { category: 'Work', suggestedActions: ['mark-read', 'trash'] } })
+      const applied = await fetch(`${baseUrl}/api/plugins/email-assistant/apply-action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messageId: 'one' }) })
+      assert.deepEqual((await applied.json() as { result: { actions: string[] } }).result.actions, ['mark-read', 'trash'])
+      assert.deepEqual(gmailActions, [
+        { url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/one/modify', body: JSON.stringify({ addLabelIds: [], removeLabelIds: ['UNREAD'] }) },
+        { url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/one/trash', body: undefined },
+      ])
       const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
       assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })

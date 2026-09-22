@@ -76,7 +76,7 @@ export interface EmailAssistantEvaluation {
   suggestedCategory?: string
   categoryStatus: 'processing' | 'suggested-new' | 'suggested-existing' | 'confirmed' | 'failed'
   categoryError?: string
-  suggestedAction?: string
+  suggestedActions?: string[]
   actionAppliedAt?: string
 }
 
@@ -94,7 +94,7 @@ export interface DatabaseOperations {
     confirmEvaluationCategory(
       messageId: string,
       category: string,
-      suggestedAction?: string,
+      suggestedActions?: string[],
     ): void
     saveCategorySuggestion(
       messageId: string,

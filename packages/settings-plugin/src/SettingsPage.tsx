@@ -280,21 +280,25 @@ function CategoryActionList({
   values: string[]; onChange(items: string[]): void;
 }) {
   const actions = categoryActionMap(values);
-  function setAction(category: string, action: string) {
+  function setActions(category: string, selectedActions: string[]) {
     const next = new Map(actions);
-    if (action) next.set(category, action); else next.delete(category);
-    onChange([...next].map(([name, value]) => JSON.stringify({ category: name, action: value })));
+    if (selectedActions.length) next.set(category, selectedActions);
+    else next.delete(category);
+    onChange([...next].map(([name, value]) =>
+      JSON.stringify({ category: name, actions: value }),
+    ));
   }
   return <div className="setting-list-editor">
-    <span>Suggested action by category</span>
+    <span>Suggested actions by category</span>
     {categories.map((category) => <label key={category}>
       <span>{category}</span>
-      <select
-        aria-label={`${setting.name} ${category}`}
-        value={actions.get(category) ?? ""}
-        onChange={(event) => setAction(category, event.target.value)}
-      >
-        <option value="">No suggested action</option>
+      <select multiple aria-label={`${setting.name} ${category}`}
+        value={actions.get(category) ?? []}
+        onChange={(event) => setActions(
+          category,
+          [...event.currentTarget.selectedOptions].map((option) => option.value),
+        )}>
+        <option value="mark-read">Mark as read</option>
         <option value="star">Star</option>
         <option value="trash">Move to trash</option>
         {labels.map((label) => (
@@ -307,12 +311,16 @@ function CategoryActionList({
     {categories.length === 0 && <span>Add email categories before mapping actions.</span>}
   </div>;
 }
-function categoryActionMap(values: string[]): Map<string, string> {
+function categoryActionMap(values: string[]): Map<string, string[]> {
   return new Map(values.flatMap((value) => {
     try {
-      const entry = JSON.parse(value) as { category?: unknown; action?: unknown };
-      return typeof entry.category === "string" && typeof entry.action === "string"
-        ? [[entry.category, entry.action] as [string, string]] : [];
+      const entry = JSON.parse(value) as {
+        category?: unknown; action?: unknown; actions?: unknown;
+      };
+      const actions = Array.isArray(entry.actions) ? entry.actions : [entry.action];
+      return typeof entry.category === "string" &&
+        actions.every((action) => typeof action === "string")
+        ? [[entry.category, actions] as [string, string[]]] : [];
     } catch { return []; }
   }));
 }
