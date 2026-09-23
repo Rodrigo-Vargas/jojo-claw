@@ -51,6 +51,7 @@
 
 - Use the language default formatter (`cargo fmt`, `gofmt`, `prettier`,
   `black`, `rubocop -A`). Don't discuss style beyond that.
+- Never disable lint rules. Fix the underlying code instead.
 
 ## Logging
 

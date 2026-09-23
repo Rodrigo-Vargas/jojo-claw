@@ -1,4 +1,3 @@
-/* eslint-disable max-len -- Plugin declarations retain their user-facing metadata. */
 import type { PlatformPlugin } from "@jojo-claw/core";
 import { EmailAssistantRepository } from "./EmailAssistantRepository.js";
 import { emailAssistantPluginManifest } from "./manifest.js";
@@ -30,22 +29,64 @@ export function createEmailAssistantPlugin(options: EmailAssistantOptions = {}):
 }
 
 function registerEmailSettings(context: Parameters<PlatformPlugin["register"]>[0]): void {
-  context.registerSetting({ id: "categories", name: "Email categories", type: "list", defaultValue: [],
-    description: "Categories for inbox classification. Each item has a name and optional action." });
-  context.registerSetting({ id: "category-actions", name: "Category actions", type: "list", defaultValue: [],
-    description: "Map a category to one or more actions: mark-read, star, trash, or archive:<Gmail label name>." });
+  const categoryActionsDescription = [
+    "Map a category to one or more actions: mark-read, star, trash,",
+    "or archive:<Gmail label name>.",
+  ].join(" ");
+  context.registerSetting({
+    id: "categories",
+    name: "Email categories",
+    type: "list",
+    defaultValue: [],
+    description: "Categories for inbox classification. Each item has a name and optional action.",
+  });
+  context.registerSetting({
+    id: "category-actions",
+    name: "Category actions",
+    type: "list",
+    defaultValue: [],
+    description: categoryActionsDescription,
+  });
 }
 
 function registerEmailSecrets(context: Parameters<PlatformPlugin["register"]>[0]): void {
-  context.registerSecret({ id: "google-client-id", name: "Google OAuth client ID", description: "OAuth client ID configured in Google Cloud for Email assistant." });
-  context.registerSecret({ id: "google-client-secret", name: "Google OAuth client secret", description: "Optional client secret when the selected Google OAuth client requires one." });
+  context.registerSecret({
+    id: "google-client-id",
+    name: "Google OAuth client ID",
+    description: "OAuth client ID configured in Google Cloud for Email assistant.",
+  });
+  context.registerSecret({
+    id: "google-client-secret",
+    name: "Google OAuth client secret",
+    description: "Optional client secret when the selected Google OAuth client requires one.",
+  });
 }
 
 function registerEmailPrompts(context: Parameters<PlatformPlugin["register"]>[0]): void {
-  context.definePrompt({ id: "email-summary-system", name: "Email summary instructions", kind: "system", defaultContent: "Summarize emails accurately and concisely." });
-  context.definePrompt({ id: "email-summary", name: "Email summary template", kind: "prompt", defaultContent: "From: {{from}}\nSubject: {{subject}}\nReceived: {{receivedAt}}\n\n{{body}}" });
-  context.definePrompt({ id: "email-category-system", name: "Email category instructions", kind: "system", defaultContent: "Choose the best category using one provided tool call." });
-  context.definePrompt({ id: "email-category", name: "Email category template", kind: "prompt", defaultContent: "Categories:\n{{categories}}\n\nEmail:\n{{email}}" });
+  context.definePrompt({
+    id: "email-summary-system",
+    name: "Email summary instructions",
+    kind: "system",
+    defaultContent: "Summarize emails accurately and concisely.",
+  });
+  context.definePrompt({
+    id: "email-summary",
+    name: "Email summary template",
+    kind: "prompt",
+    defaultContent: "From: {{from}}\nSubject: {{subject}}\nReceived: {{receivedAt}}\n\n{{body}}",
+  });
+  context.definePrompt({
+    id: "email-category-system",
+    name: "Email category instructions",
+    kind: "system",
+    defaultContent: "Choose the best category using one provided tool call.",
+  });
+  context.definePrompt({
+    id: "email-category",
+    name: "Email category template",
+    kind: "prompt",
+    defaultContent: "Categories:\n{{categories}}\n\nEmail:\n{{email}}",
+  });
 }
 
 function googleConnectionService(
@@ -54,9 +95,15 @@ function googleConnectionService(
   options: EmailAssistantOptions,
   repository: EmailAssistantRepository,
 ): GoogleConnectionService {
-  return new GoogleConnectionService({ fetch: request, repository, configuration: () => ({
-    clientId: options.oauth?.clientId ?? context.getSecret("google-client-id") ?? "",
-    clientSecret: options.oauth?.clientSecret ?? context.getSecret("google-client-secret") ?? "",
-    redirectUri: options.oauth?.redirectUri ?? process.env.JOJO_GOOGLE_REDIRECT_URI ?? "http://localhost:8788/api/plugins/email-assistant/oauth/callback",
-  }) });
+  return new GoogleConnectionService({
+    fetch: request,
+    repository,
+    configuration: () => ({
+      clientId: options.oauth?.clientId ?? context.getSecret("google-client-id") ?? "",
+      clientSecret: options.oauth?.clientSecret ?? context.getSecret("google-client-secret") ?? "",
+      redirectUri: options.oauth?.redirectUri
+        ?? process.env.JOJO_GOOGLE_REDIRECT_URI
+        ?? "http://localhost:8788/api/plugins/email-assistant/oauth/callback",
+    }),
+  });
 }

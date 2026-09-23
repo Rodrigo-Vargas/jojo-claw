@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function -- This page coordinates plugin settings state. */
 import { type FormEvent, useEffect, useState } from "react";
 import type {
   JsonSettingValue,

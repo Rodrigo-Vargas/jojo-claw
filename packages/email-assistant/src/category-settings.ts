@@ -1,4 +1,3 @@
-/* eslint-disable max-len -- Category-setting parsing preserves its input shapes. */
 import type { EmailEvaluation } from "./email-types.js";
 import type { CategoryAction, EmailCategory } from "./email-types.js";
 
@@ -13,7 +12,10 @@ function categoryFromSetting(category: unknown): EmailCategory[] {
   if (!category || typeof category !== "object") return [];
   const input = category as { name?: unknown; action?: unknown };
   if (typeof input.name !== "string" || !input.name.trim()) return [];
-  return [{ name: input.name.trim(), action: typeof input.action === "string" ? input.action : "" }];
+  return [{
+    name: input.name.trim(),
+    action: typeof input.action === "string" ? input.action : "",
+  }];
 }
 
 export function matchingCategory(

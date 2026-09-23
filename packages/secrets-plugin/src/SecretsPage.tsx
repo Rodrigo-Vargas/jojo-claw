@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function -- This page coordinates secret reveal state. */
 import { FormEvent, useEffect, useState } from "react";
 
 interface ManagedSecret {
@@ -93,6 +92,34 @@ export default function SecretsPage() {
     }
   }
 
+  return <SecretsPageContent
+    secrets={secrets}
+    values={values}
+    revealed={revealed}
+    message={message}
+    error={error}
+    onSave={save}
+    onReveal={toggleReveal}
+    onValueChange={(secret, value) => setValues((current) => ({
+      ...current,
+      [keyOf(secret)]: value,
+    }))}
+  />;
+}
+
+interface SecretsPageContentProps {
+  secrets: ManagedSecret[];
+  values: Record<string, string>;
+  revealed: Record<string, string>;
+  message: string | undefined;
+  error: string | undefined;
+  onSave(event: FormEvent<HTMLFormElement>, secret: ManagedSecret): Promise<void>;
+  onReveal(secret: ManagedSecret): Promise<void>;
+  onValueChange(secret: ManagedSecret, value: string): void;
+}
+
+function SecretsPageContent(props: SecretsPageContentProps) {
+  const { secrets, values, revealed, message, error, onSave, onReveal, onValueChange } = props;
   return (
     <section className="conversation secrets-page">
       <div className="intro">
@@ -113,7 +140,7 @@ export default function SecretsPage() {
           <form
             className="secret-card"
             key={keyOf(secret)}
-            onSubmit={(event) => void save(event, secret)}
+            onSubmit={(event) => void onSave(event, secret)}
           >
             <div>
               <strong>{secret.name}</strong>
@@ -136,7 +163,7 @@ export default function SecretsPage() {
                     `${revealed[keyOf(secret)] !== undefined ? "Hide" : "Show"} ` +
                     `stored ${secret.name}`
                   }
-                  onClick={() => void toggleReveal(secret)}
+                  onClick={() => void onReveal(secret)}
                 >
                   {revealed[keyOf(secret)] !== undefined ? "◉" : "◉̸"}
                 </button>
@@ -154,12 +181,7 @@ export default function SecretsPage() {
                 type="password"
                 autoComplete="off"
                 value={values[keyOf(secret)] ?? ""}
-                onChange={(event) =>
-                  setValues((current) => ({
-                    ...current,
-                    [keyOf(secret)]: event.target.value,
-                  }))
-                }
+                onChange={(event) => onValueChange(secret, event.target.value)}
                 placeholder={
                   secret.configured ? "Leave blank to clear" : "Enter a value"
                 }
