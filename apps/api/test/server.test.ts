@@ -28,13 +28,54 @@ describe('Jojo Claw HTTP API', () => {
       requests.push(JSON.parse(String(init?.body)))
       return Response.json({ model: 'llama-test', message: { content: '', tool_calls: [{ function: { name: 'calculate', arguments: { expression: '2 + 2' } } }] } })
     }
-    const provider = new OllamaProvider({ fetch: request })
+    const provider = new OllamaProvider({ fetch: request, model: 'llama3.2' })
     const result = await provider.generateWithTools({
       messages: [{ role: 'user', content: 'Calculate 2 + 2.' }],
       tools: [{ name: 'calculate', description: 'Does arithmetic.', parameters: { type: 'object' } }],
     })
     assert.deepEqual(result, { text: '', model: 'llama-test', toolCalls: [{ id: 'ollama-0', name: 'calculate', arguments: { expression: '2 + 2' } }] })
     assert.deepEqual(requests, [{ model: 'llama3.2', messages: [{ role: 'user', content: 'Calculate 2 + 2.' }], tools: [{ type: 'function', function: { name: 'calculate', description: 'Does arithmetic.', parameters: { type: 'object' } } }], stream: false }])
+  })
+
+  it('lists installed Ollama models from the tags endpoint', async () => {
+    const provider = new OllamaProvider({
+      fetch: async (input) => {
+        assert.equal(String(input), 'http://127.0.0.1:11434/api/tags')
+        return Response.json({ models: [{ name: 'qwen3:8b' }, { name: 'gemma3:4b' }] })
+      },
+    })
+    assert.deepEqual(await provider.listModels(), [{ name: 'qwen3:8b' }, { name: 'gemma3:4b' }])
+  })
+
+  it('uses the persisted default model selected from Ollama tags', async () => {
+    const storage = temporarySecretFile()
+    const requests: unknown[] = []
+    const server = createJojoClawServer({
+      settingsFilePath: storage.path,
+      ollama: { fetch: async (input, init) => {
+        if (String(input).endsWith('/api/tags'))
+          return Response.json({ models: [{ name: 'qwen3:8b' }] })
+        requests.push(JSON.parse(String(init?.body)))
+        return Response.json({ model: 'qwen3:8b', message: { content: 'Done.' } })
+      } },
+    }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      const models = await fetch(`${baseUrl}/api/ollama/models`)
+      assert.deepEqual(await models.json(), { options: ['qwen3:8b'] })
+      await fetch(`${baseUrl}/api/plugins/settings/set`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pluginId: 'ollama', id: 'default-model', value: 'qwen3:8b' }),
+      })
+      const response = await fetch(`${baseUrl}/api/plugins/text/generate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Say done.' }),
+      })
+      assert.equal(response.ok, true)
+      assert.deepEqual(requests, [{ model: 'qwen3:8b', messages: [{ role: 'user', content: 'Say done.' }], stream: false }])
+    } finally { server.close(); await once(server, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
   })
 
   it('mounts the installed text package and lets it use the platform provider', async () => {

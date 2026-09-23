@@ -12,7 +12,10 @@ import {
   type PluginRouteRedirect,
 } from "@jojo-claw/core";
 import { createDatabasePlugin } from "@jojo-claw/database-plugin";
-import { OllamaProvider } from "@jojo-claw/ollama";
+import {
+  OllamaProvider,
+  type OllamaProviderOptions,
+} from "@jojo-claw/ollama";
 import { createSecretsPlugin, SecretRegistry } from "@jojo-claw/secrets-plugin";
 import {
   createSettingsPlugin,
@@ -29,11 +32,11 @@ export interface JojoClawOptions {
   secretFilePath?: string;
   settingsFilePath?: string;
   databasePath?: string;
+  ollama?: Omit<OllamaProviderOptions, "model">;
 }
 
 /** Creates the HTTP boundary and mounts the locally installed plugin packages. */
 export function createJojoClawServer(options: JojoClawOptions = {}) {
-  const provider = options.provider ?? new OllamaProvider();
   const secrets = new SecretRegistry(
     options.secretFilePath ?? resolve(process.cwd(), ".env"),
   );
@@ -41,6 +44,9 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
     options.settingsFilePath ??
       resolve(process.cwd(), ".jojo-claw", "settings.json"),
   );
+  const provider =
+    options.provider ?? createConfiguredOllamaProvider(settings, options.ollama);
+  if (provider instanceof OllamaProvider) registerOllamaModelSetting(settings);
   const database = createDatabasePlugin({ storagePath: options.databasePath });
   const promptQueue = new PromptQueue();
   const plugins = [
@@ -64,14 +70,13 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       `http://${request.headers.host ?? "localhost"}`,
     );
     try {
-      if (request.method === "GET" && url.pathname === "/health")
-        return sendJson(response, 200, { status: "ok" });
-      if (request.method === "GET" && url.pathname === "/api/plugins")
-        return sendJson(response, 200, {
-          plugins: plugins.map((plugin) => plugin.manifest),
-        });
-      if (request.method === "GET" && url.pathname === "/api/prompt-queue")
-        return sendJson(response, 200, { items: promptQueue.snapshot() });
+      const platformResponse = await platformResponseFor(
+        request.method,
+        url.pathname,
+        { plugins, promptQueue, provider },
+      );
+      if (platformResponse)
+        return sendJson(response, platformResponse.status, platformResponse.body);
       const route = routes.get(`${request.method ?? "GET"} ${url.pathname}`);
       if (route) {
         const result = await route.handle({
@@ -99,6 +104,59 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
         { error: message },
       );
     }
+  });
+}
+
+async function platformResponseFor(
+  method: string | undefined,
+  pathname: string,
+  services: PlatformApiServices,
+): Promise<{ status: number; body: unknown } | undefined> {
+  if (method !== "GET") return undefined;
+  if (pathname === "/health") return { status: 200, body: { status: "ok" } };
+  if (pathname === "/api/plugins")
+    return {
+      status: 200,
+      body: { plugins: services.plugins.map((plugin) => plugin.manifest) },
+    };
+  if (pathname === "/api/prompt-queue")
+    return { status: 200, body: { items: services.promptQueue.snapshot() } };
+  if (pathname !== "/api/ollama/models") return undefined;
+  if (!(services.provider instanceof OllamaProvider))
+    return { status: 404, body: { error: "Ollama is not configured." } };
+  return {
+    status: 200,
+    body: {
+      options: (await services.provider.listModels()).map((model) => model.name),
+    },
+  };
+}
+
+interface PlatformApiServices {
+  plugins: PlatformPlugin[];
+  promptQueue: PromptQueue;
+  provider: LlmProvider;
+}
+
+function createConfiguredOllamaProvider(
+  settings: SettingsRegistry,
+  options: Omit<OllamaProviderOptions, "model"> | undefined,
+): OllamaProvider {
+  return new OllamaProvider({
+    ...options,
+    model: () => settings.get("ollama", "default-model") as string,
+  });
+}
+
+function registerOllamaModelSetting(settings: SettingsRegistry): void {
+  settings.register("ollama", {
+    id: "default-model",
+    name: "Default Ollama model",
+    description:
+      "Used for requests that do not specify a model. Installed models come from Ollama.",
+    type: "string",
+    defaultValue: process.env.OLLAMA_MODEL ?? "",
+    optionsEndpoint: "/api/ollama/models",
   });
 }
 

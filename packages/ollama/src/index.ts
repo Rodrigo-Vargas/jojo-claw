@@ -16,6 +16,11 @@ interface OllamaChatResponse {
   error?: string;
 }
 
+interface OllamaTagsResponse {
+  models?: Array<{ name?: string }>;
+  error?: string;
+}
+
 interface OllamaToolCall {
   function?: { name?: string; arguments?: Record<string, unknown> };
 }
@@ -32,14 +37,18 @@ type OllamaMessage =
 
 export interface OllamaProviderOptions {
   baseUrl?: string;
-  model?: string;
+  model?: string | (() => string);
   fetch?: typeof fetch;
+}
+
+export interface OllamaModel {
+  name: string;
 }
 
 /** Owns Ollama's wire format so plugin applications never need to. */
 export class OllamaProvider implements LlmProvider {
   private readonly baseUrl: string;
-  private readonly model: string;
+  private readonly model: string | (() => string);
   private readonly request: typeof fetch;
 
   constructor(options: OllamaProviderOptions = {}) {
@@ -48,14 +57,14 @@ export class OllamaProvider implements LlmProvider {
       process.env.OLLAMA_BASE_URL ??
       "http://127.0.0.1:11434"
     ).replace(/\/$/, "");
-    this.model = options.model ?? process.env.OLLAMA_MODEL ?? "llama3.2";
+    this.model = options.model ?? process.env.OLLAMA_MODEL ?? "";
     this.request = options.fetch ?? fetch;
   }
 
   async generate(input: GenerateTextInput): Promise<GenerateTextResult> {
     const prompt = input.prompt.trim();
     if (!prompt) throw new Error("prompt is required.");
-    const model = input.model?.trim() || this.model;
+    const model = input.model?.trim() || this.defaultModel();
     const messages = [
       ...(input.system?.trim()
         ? [{ role: "system", content: input.system.trim() }]
@@ -80,7 +89,7 @@ export class OllamaProvider implements LlmProvider {
   async generateWithTools(
     input: GenerateWithToolsInput,
   ): Promise<GenerateWithToolsResult> {
-    const model = input.model?.trim() || this.model;
+    const model = input.model?.trim() || this.defaultModel();
     const response = await this.request(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -103,6 +112,28 @@ export class OllamaProvider implements LlmProvider {
       model: payload.model ?? model,
       toolCalls: parseToolCalls(message.tool_calls ?? []),
     };
+  }
+
+  /** Lists models currently installed in Ollama. Example: `await provider.listModels()`. */
+  async listModels(): Promise<OllamaModel[]> {
+    const response = await this.request(`${this.baseUrl}/api/tags`);
+    const payload = (await response.json()) as OllamaTagsResponse;
+    if (!response.ok)
+      throw new Error(payload.error ?? `Ollama returned HTTP ${response.status}.`);
+    return (payload.models ?? []).flatMap((model) =>
+      typeof model.name === "string" && model.name.trim()
+        ? [{ name: model.name }]
+        : [],
+    );
+  }
+
+  private defaultModel(): string {
+    const configured = typeof this.model === "function" ? this.model() : this.model;
+    const model = configured.trim();
+    if (model) return model;
+    throw new Error(
+      "No default Ollama model is configured. Select an installed model in Settings.",
+    );
   }
 }
 

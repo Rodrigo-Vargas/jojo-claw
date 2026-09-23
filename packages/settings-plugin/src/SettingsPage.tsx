@@ -14,6 +14,7 @@ interface ManagedSetting {
   type: PluginSettingType;
   defaultValue: PluginSettingValue;
   value: PluginSettingValue;
+  optionsEndpoint?: string;
 }
 interface GmailLabel { id: string; name: string }
 
@@ -25,6 +26,7 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const [gmailLabels, setGmailLabels] = useState<GmailLabel[]>([]);
+  const [selectOptions, setSelectOptions] = useState<Record<string, string[]>>({});
   async function load() {
     const response = await fetch("/api/plugins/settings/list", {
       method: "POST",
@@ -59,6 +61,7 @@ export default function SettingsPage() {
           .map((setting) => [keyOf(setting), jsonListInputs(setting.value)]),
       ),
     );
+    void loadSelectOptions(payload.result.settings);
   }
   useEffect(() => {
     void load().catch((cause: unknown) => setError(messageOf(cause)));
@@ -72,6 +75,19 @@ export default function SettingsPage() {
     } catch {
       /* Email actions can still be configured after Gmail is connected. */
     }
+  }
+  async function loadSelectOptions(loadedSettings: ManagedSetting[]) {
+    const selectable = loadedSettings.filter((setting) => setting.optionsEndpoint);
+    const choices = await Promise.all(selectable.map(async (setting) => {
+      const response = await fetch(setting.optionsEndpoint ?? "");
+      if (!response.ok) return [keyOf(setting), []] as const;
+      const payload = (await response.json()) as { options?: unknown };
+      const options = Array.isArray(payload.options)
+        ? payload.options.filter((option): option is string => typeof option === "string")
+        : [];
+      return [keyOf(setting), options] as const;
+    }));
+    setSelectOptions(Object.fromEntries(choices));
   }
   async function save(
     event: FormEvent<HTMLFormElement>,
@@ -229,6 +245,19 @@ export default function SettingsPage() {
                         })
                       }
                     />
+                  </>
+                ) : setting.optionsEndpoint ? (
+                  <>
+                    <span>Installed model</span>
+                    <select
+                      value={String(values[keyOf(setting)] ?? "")}
+                      onChange={(event) => updateValue(setting, event.target.value)}
+                    >
+                      <option value="">Select a model</option>
+                      {(selectOptions[keyOf(setting)] ?? []).map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
                   </>
                 ) : (
                   <>

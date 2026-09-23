@@ -10,7 +10,7 @@ This first slice deliberately does **not** load packages dynamically, stream out
 
 ## Run
 
-Start Ollama and install a model, then configure its name if you do not use the default `llama3.2`:
+Start Ollama and install a model. Then open **Settings** and choose the default from the models Ollama reports, or seed it at startup with `OLLAMA_MODEL`:
 
 ```sh
 ollama pull llama3.2

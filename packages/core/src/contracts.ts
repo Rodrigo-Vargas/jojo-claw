@@ -126,6 +126,8 @@ export interface PluginSettingDefinition {
   description?: string
   type: PluginSettingType
   defaultValue: PluginSettingValue
+  /** An API path that returns `{ options: string[] }` for a selectable string setting. */
+  optionsEndpoint?: string
 }
 
 /** A route contributed by an installed plugin package. */
