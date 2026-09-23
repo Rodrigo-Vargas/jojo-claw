@@ -32,7 +32,7 @@ export class PromptQueue {
   }
 
   private createEntry(pluginName: string, prompt: string): PromptQueueEntry {
-    const entry: QueueEntry = { id: this.nextId++, pluginName, prompt, status: "queued" };
+    const entry: PromptQueueEntry = { id: this.nextId++, pluginName, prompt, status: "queued" };
     this.entries.push(entry);
     return entry;
   }

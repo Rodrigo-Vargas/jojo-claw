@@ -53,59 +53,6 @@ export interface LlmProvider {
   generateWithTools?(input: GenerateWithToolsInput): Promise<GenerateWithToolsResult>
 }
 
-export interface EmailAssistantConnection {
-  accessToken: string
-  refreshToken: string
-  expiryDate: number
-  grantedScopes: string
-  email: string | null
-}
-
-export interface EmailAssistantOAuthTransaction {
-  codeVerifier: string
-  createdAt: number
-}
-
-export interface EmailAssistantEvaluation {
-  messageId: string
-  from: string
-  subject: string
-  receivedAt: string
-  description: string
-  category?: string
-  suggestedCategory?: string
-  categoryStatus: 'processing' | 'suggested-new' | 'suggested-existing' | 'confirmed' | 'failed'
-  categoryError?: string
-  suggestedActions?: string[]
-  actionAppliedAt?: string
-}
-
-/** Persistence operations owned and implemented by the database platform plugin. */
-export interface DatabaseOperations {
-  emailAssistant: {
-    getConnection(): EmailAssistantConnection | undefined
-    saveConnection(connection: EmailAssistantConnection): void
-    deleteConnection(): void
-    deleteExpiredOAuthTransactions(before: number): void
-    createOAuthTransaction(state: string, transaction: EmailAssistantOAuthTransaction): void
-    consumeOAuthTransaction(state: string): EmailAssistantOAuthTransaction | undefined
-    listEvaluations(): EmailAssistantEvaluation[]
-    saveEvaluation(evaluation: EmailAssistantEvaluation): void
-    confirmEvaluationCategory(
-      messageId: string,
-      category: string,
-      suggestedActions?: string[],
-    ): void
-    saveCategorySuggestion(
-      messageId: string,
-      category: string,
-      status: 'suggested-new' | 'suggested-existing',
-    ): void
-    failCategoryEvaluation(messageId: string, error: string): void
-    markEvaluationActionApplied(messageId: string, appliedAt: string): void
-  }
-}
-
 /** A secret that a plugin needs the local user to provide. */
 export interface SecretDefinition {
   id: string
@@ -115,6 +62,19 @@ export interface SecretDefinition {
 
 export type JsonSettingValue = null | boolean | number | string | JsonSettingValue[] | {
   [key: string]: JsonSettingValue
+}
+
+/** Durable JSON records isolated to the plugin that owns them. */
+export interface PluginStorage {
+  get<T>(key: string): T | undefined
+  set<T>(key: string, value: T): void
+  delete(key: string): void
+  entries<T>(): Array<{ key: string; value: T }>
+}
+
+/** Platform-owned storage that creates an isolated record collection per plugin. */
+export interface StorageOperations {
+  forPlugin(pluginId: string): PluginStorage
 }
 export type PluginSettingValue = boolean | number | string | string[] | JsonSettingValue
 export type PluginSettingType = 'boolean' | 'number' | 'string' | 'string-list' | 'json' | 'list'
@@ -128,6 +88,21 @@ export interface PluginSettingDefinition {
   defaultValue: PluginSettingValue
   /** An API path that returns `{ options: string[] }` for a selectable string setting. */
   optionsEndpoint?: string
+}
+
+/** A prompt declared by a plugin and editable by the local user. */
+export interface PromptDefinition {
+  id: string
+  name: string
+  description?: string
+  kind: 'prompt' | 'system'
+  defaultContent: string
+}
+
+/** Prompt operations made available to installed plugins. */
+export interface PromptOperations {
+  define(pluginId: string, definition: PromptDefinition): void
+  get(pluginId: string, id: string): string
 }
 
 /** A route contributed by an installed plugin package. */
@@ -159,13 +134,15 @@ export function pluginRedirect(location: string, status: 302 | 303 = 302): Plugi
 export interface PluginContext {
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>
   generateWithTools(input: GenerateWithToolsInput): Promise<GenerateWithToolsResult>
-  database: DatabaseOperations
+  storage: PluginStorage
   registerRoute(route: PluginRoute): void
   registerSecret(secret: SecretDefinition): void
   getSecret(id: string): string | undefined
   registerSetting(setting: PluginSettingDefinition): void
   getSetting(id: string): PluginSettingValue
   setSetting(id: string, value: PluginSettingValue): void
+  definePrompt(definition: PromptDefinition): void
+  getPrompt(id: string): string
 }
 
 /** A Node package that extends the platform at API composition time. */

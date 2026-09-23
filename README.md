@@ -52,7 +52,7 @@ Email Assistant uses the OAuth authorization-code flow with PKCE. In Google Clou
 http://localhost:8788/api/plugins/email-assistant/oauth/callback
 ```
 
-In the **Secrets** page, configure `email-assistant/google-client-id`. Set `email-assistant/google-client-secret` too when the selected Google OAuth client requires one. Then open Email assistant and choose **Connect Gmail**. The plugin requests only Gmail read access; the platform Database plugin manages its local connection in `.jojo-claw/database.db`.
+In the **Secrets** page, configure `email-assistant/google-client-id`. Set `email-assistant/google-client-secret` too when the selected Google OAuth client requires one. Then open Email assistant and choose **Connect Gmail**. The plugin requests only Gmail read access; the platform Database plugin provides its local storage in `.jojo-claw/database.db`.
 
 The current Secrets plugin keeps values only for the API process lifetime. After an API restart, enter the same Google OAuth values again before using the saved Gmail connection; a durable secret vault is a remaining platform enhancement.
 
@@ -73,7 +73,7 @@ apps/
   web/                 browser application placeholder
 packages/
   core/                server and browser plugin contracts
-  database-plugin/     SQLite configuration and platform schema
+  database-plugin/     SQLite storage for plugin-owned records
   ollama/              Ollama provider adapter
   settings-plugin/     typed plugin preferences, persistence, and browser page
   text-plugin/         first local package using the AI capability

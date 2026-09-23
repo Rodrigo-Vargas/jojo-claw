@@ -4,6 +4,7 @@ import { secretsWebPlugin } from "@jojo-claw/secrets-plugin/web";
 import { settingsWebPlugin } from "@jojo-claw/settings-plugin/web";
 import { emailAssistantWebPlugin } from "@jojo-claw/email-assistant/web";
 import { toolCallingWebPlugin } from "@jojo-claw/tool-calling-plugin/web";
+import { promptsWebPlugin } from "@jojo-claw/prompt-plugin/web";
 import { mountWebPlugins } from "./plugin-registry.js";
 import { PromptQueueWidget } from "./PromptQueueWidget.js";
 
@@ -12,6 +13,7 @@ const pages = mountWebPlugins([
   textWebPlugin,
   toolCallingWebPlugin,
   emailAssistantWebPlugin,
+  promptsWebPlugin,
   secretsWebPlugin,
   settingsWebPlugin,
 ]);

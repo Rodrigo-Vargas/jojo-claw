@@ -1,9 +1,5 @@
 export { pluginRedirect } from "./contracts.js";
 export type {
-  DatabaseOperations,
-  EmailAssistantConnection,
-  EmailAssistantEvaluation,
-  EmailAssistantOAuthTransaction,
   GenerateTextInput,
   GenerateTextResult,
   GenerateWithToolsInput,
@@ -19,10 +15,14 @@ export type {
   PluginRouteRedirect,
   PluginSettingDefinition,
   PluginSettingValue,
+  PromptDefinition,
+  PromptOperations,
   ToolCall,
   ToolDefinition,
   ToolMessage,
   SecretDefinition,
+  PluginStorage,
+  StorageOperations,
   WebPlatformPlugin,
   WebPluginContext,
 } from "./contracts.js";

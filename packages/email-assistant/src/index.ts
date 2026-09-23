@@ -1,5 +1,6 @@
 /* eslint-disable max-len -- Plugin declarations retain their user-facing metadata. */
 import type { PlatformPlugin } from "@jojo-claw/core";
+import { EmailAssistantRepository } from "./EmailAssistantRepository.js";
 import { emailAssistantPluginManifest } from "./manifest.js";
 import { registerEmailAssistantRoutes } from "./register-email-assistant-routes.js";
 import { GoogleConnectionService } from "./services/GoogleConnectionService.js";
@@ -18,9 +19,12 @@ export function createEmailAssistantPlugin(options: EmailAssistantOptions = {}):
   return {
     manifest: emailAssistantPluginManifest,
     register(context) {
+      const repository = new EmailAssistantRepository(context.storage);
       registerEmailSettings(context);
       registerEmailSecrets(context);
-      registerEmailAssistantRoutes({ context, request, service: googleConnectionService(context, request, options) });
+      registerEmailPrompts(context);
+      const service = googleConnectionService(context, request, options, repository);
+      registerEmailAssistantRoutes({ context, request, repository, service });
     },
   };
 }
@@ -37,10 +41,20 @@ function registerEmailSecrets(context: Parameters<PlatformPlugin["register"]>[0]
   context.registerSecret({ id: "google-client-secret", name: "Google OAuth client secret", description: "Optional client secret when the selected Google OAuth client requires one." });
 }
 
+function registerEmailPrompts(context: Parameters<PlatformPlugin["register"]>[0]): void {
+  context.definePrompt({ id: "email-summary-system", name: "Email summary instructions", kind: "system", defaultContent: "Summarize emails accurately and concisely." });
+  context.definePrompt({ id: "email-summary", name: "Email summary template", kind: "prompt", defaultContent: "From: {{from}}\nSubject: {{subject}}\nReceived: {{receivedAt}}\n\n{{body}}" });
+  context.definePrompt({ id: "email-category-system", name: "Email category instructions", kind: "system", defaultContent: "Choose the best category using one provided tool call." });
+  context.definePrompt({ id: "email-category", name: "Email category template", kind: "prompt", defaultContent: "Categories:\n{{categories}}\n\nEmail:\n{{email}}" });
+}
+
 function googleConnectionService(
-  context: Parameters<PlatformPlugin["register"]>[0], request: typeof fetch, options: EmailAssistantOptions,
+  context: Parameters<PlatformPlugin["register"]>[0],
+  request: typeof fetch,
+  options: EmailAssistantOptions,
+  repository: EmailAssistantRepository,
 ): GoogleConnectionService {
-  return new GoogleConnectionService({ fetch: request, database: context.database, configuration: () => ({
+  return new GoogleConnectionService({ fetch: request, repository, configuration: () => ({
     clientId: options.oauth?.clientId ?? context.getSecret("google-client-id") ?? "",
     clientSecret: options.oauth?.clientSecret ?? context.getSecret("google-client-secret") ?? "",
     redirectUri: options.oauth?.redirectUri ?? process.env.JOJO_GOOGLE_REDIRECT_URI ?? "http://localhost:8788/api/plugins/email-assistant/oauth/callback",

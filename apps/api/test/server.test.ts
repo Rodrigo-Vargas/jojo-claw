@@ -88,9 +88,10 @@ describe('Jojo Claw HTTP API', () => {
     try {
       const installed = await fetch(`${baseUrl}/api/plugins`)
       assert.deepEqual(await installed.json(), { plugins: [
-        { id: 'database', name: 'Database', description: 'Configures the local database connection and manages platform schema.' },
+        { id: 'database', name: 'Database', description: 'Provides local SQLite storage for installed plugins.' },
         { id: 'secrets', name: 'Secrets', description: 'Lets you configure secrets requested by local plugins.' },
         { id: 'settings', name: 'Settings', description: 'Stores and presents settings registered by local plugins.' },
+        { id: 'prompts', name: 'Prompts', description: 'Stores and presents prompts registered by local plugins.' },
         { id: 'text', name: 'Text generation', description: 'Generates text using the platform-managed LLM provider.' },
         { id: 'tool-calling', name: 'Tool calling', description: 'Lets the model request safe local tools and use their results.' },
         { id: 'email-assistant', name: 'Email assistant', description: 'Evaluates recent Gmail inbox messages into concise descriptions.' },
@@ -185,6 +186,26 @@ describe('Jojo Claw HTTP API', () => {
     } finally { if (server.listening) { server.close(); await once(server, 'close') }; rmSync(storage.directory, { recursive: true, force: true }) }
   })
 
+  it("isolates records written by different plugins", async () => {
+    let firstValue: string | undefined
+    let secondValue: string | undefined
+    const plugins: PlatformPlugin[] = [
+      { manifest: { id: "first", name: "First", description: "Writes a record." }, register(context) {
+        context.storage.set("shared-key", "first-value")
+        firstValue = context.storage.get<string>("shared-key")
+      } },
+      { manifest: { id: "second", name: "Second", description: "Reads its own records." }, register(context) {
+        secondValue = context.storage.get<string>("shared-key")
+      } },
+    ]
+    const server = createJojoClawServer({ provider: { generate: async () => ({ text: "unused", model: "test" }) }, plugins }).listen(0)
+    await once(server, "listening")
+    try {
+      assert.equal(firstValue, "first-value")
+      assert.equal(secondValue, undefined)
+    } finally { server.close(); await once(server, "close") }
+  })
+
   it('persists JSON list settings and rejects non-list values', async () => {
     const storage = temporarySecretFile()
     const plugin: PlatformPlugin = {
@@ -200,6 +221,30 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual(await saved.json(), { result: { value: [{ field: 'from', value: 'news@example.com' }] } })
       const rejected = await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'filters', id: 'rules', value: { field: 'from' } }) })
       assert.equal(rejected.ok, false)
+    } finally { server.close(); await once(server, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
+  })
+
+  it('lets plugins declare prompts and persists their edited content in the prompts folder', async () => {
+    const storage = temporarySecretFile()
+    let observedPrompt: string | undefined
+    const plugin: PlatformPlugin = {
+      manifest: { id: 'summarizer', name: 'Summarizer', description: 'Summarizes notes.' },
+      register(context) {
+        context.definePrompt({ id: 'instructions', name: 'Summary instructions', kind: 'system', defaultContent: 'Be concise.' })
+        context.registerRoute({ method: 'POST', path: '/configured', async handle() { observedPrompt = context.getPrompt('instructions'); return { prompt: observedPrompt } } })
+      },
+    }
+    const server = createJojoClawServer({ provider: { generate: async () => ({ text: 'unused', model: 'test' }) }, plugins: [plugin], promptsDirectory: join(storage.directory, 'prompts') }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      const listed = await fetch(`${baseUrl}/api/plugins/prompts/list`, { method: 'POST' })
+      assert.deepEqual(await listed.json(), { result: { prompts: [{ pluginId: 'summarizer', id: 'instructions', name: 'Summary instructions', kind: 'system', defaultContent: 'Be concise.', content: 'Be concise.' }] } })
+      const updated = await fetch(`${baseUrl}/api/plugins/prompts/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'summarizer', id: 'instructions', content: 'Use one sentence.' }) })
+      assert.deepEqual(await updated.json(), { result: { content: 'Use one sentence.' } })
+      assert.deepEqual(await (await fetch(`${baseUrl}/api/plugins/summarizer/configured`, { method: 'POST' })).json(), { result: { prompt: 'Use one sentence.' } })
+      assert.equal(observedPrompt, 'Use one sentence.')
     } finally { server.close(); await once(server, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
   })
 

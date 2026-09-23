@@ -5,9 +5,11 @@ import {
 } from "node:http";
 import { resolve } from "node:path";
 import {
-  type DatabaseOperations,
+  type StorageOperations,
   type LlmProvider,
   type PlatformPlugin,
+  type PromptDefinition,
+  type PromptOperations,
   type PluginRoute,
   type PluginRouteRedirect,
 } from "@jojo-claw/core";
@@ -22,6 +24,7 @@ import {
   SettingsRegistry,
 } from "@jojo-claw/settings-plugin";
 import { createEmailAssistantPlugin } from "@jojo-claw/email-assistant";
+import { createPromptsPlugin, PromptRegistry } from "@jojo-claw/prompt-plugin";
 import { textPlugin } from "@jojo-claw/text-plugin";
 import { toolCallingPlugin } from "@jojo-claw/tool-calling-plugin";
 import { PromptQueue } from "./PromptQueue.js";
@@ -32,6 +35,7 @@ export interface JojoClawOptions {
   secretFilePath?: string;
   settingsFilePath?: string;
   databasePath?: string;
+  promptsDirectory?: string;
   ollama?: Omit<OllamaProviderOptions, "model">;
 }
 
@@ -48,19 +52,24 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
     options.provider ?? createConfiguredOllamaProvider(settings, options.ollama);
   if (provider instanceof OllamaProvider) registerOllamaModelSetting(settings);
   const database = createDatabasePlugin({ storagePath: options.databasePath });
+  const prompts = new PromptRegistry(
+    options.promptsDirectory ?? resolve(process.cwd(), ".jojo-claw", "prompts"),
+  );
   const promptQueue = new PromptQueue();
   const plugins = [
     database.plugin,
     createSecretsPlugin(secrets),
     createSettingsPlugin(settings),
+    createPromptsPlugin(prompts),
     ...(options.plugins ?? [textPlugin, toolCallingPlugin, createEmailAssistantPlugin()]),
   ];
   const routes = mountPlugins(plugins, {
     provider,
     secrets,
     settings,
-    database: database.operations,
+    storage: database.storage,
     promptQueue,
+    prompts,
   });
   return createServer(async (request, response) => {
     setCors(response);
@@ -73,7 +82,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       const platformResponse = await platformResponseFor(
         request.method,
         url.pathname,
-        { plugins, promptQueue, provider },
+        { plugins, promptQueue, prompts, provider },
       );
       if (platformResponse)
         return sendJson(response, platformResponse.status, platformResponse.body);
@@ -135,6 +144,7 @@ async function platformResponseFor(
 interface PlatformApiServices {
   plugins: PlatformPlugin[];
   promptQueue: PromptQueue;
+  prompts: PromptOperations;
   provider: LlmProvider;
 }
 
@@ -164,8 +174,9 @@ interface PluginServices {
   provider: LlmProvider;
   secrets: SecretRegistry;
   settings: SettingsRegistry;
-  database: DatabaseOperations;
+  storage: StorageOperations;
   promptQueue: PromptQueue;
+  prompts: PromptOperations;
 }
 
 function mountPlugins(
@@ -190,7 +201,7 @@ function mountPlugins(
           () => services.provider.generateWithTools!(input),
         );
       },
-      database: services.database,
+      storage: services.storage.forPlugin(plugin.manifest.id),
       registerRoute: (route) => {
         if (!route.path.startsWith("/"))
           throw new Error(
@@ -208,6 +219,9 @@ function mountPlugins(
       getSetting: (id) => services.settings.get(plugin.manifest.id, id),
       setSetting: (id, value) =>
         services.settings.set(plugin.manifest.id, id, value),
+      definePrompt: (definition: PromptDefinition) =>
+        services.prompts.define(plugin.manifest.id, definition),
+      getPrompt: (id) => services.prompts.get(plugin.manifest.id, id),
     });
   return routes;
 }

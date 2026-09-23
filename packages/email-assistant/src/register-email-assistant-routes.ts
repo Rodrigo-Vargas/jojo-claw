@@ -1,5 +1,6 @@
 /* eslint-disable max-len -- Route declarations retain HTTP behavior at a glance. */
 import { pluginRedirect } from "@jojo-claw/core";
+import { EmailAssistantRepository } from "./EmailAssistantRepository.js";
 import { CategoryEvaluationQueue } from "./category-evaluation-queue.js";
 import { actionsForCategory, categoryActions, emailCategories, matchingCategory, withMappedActions } from "./category-settings.js";
 import { applyGmailActions, listGmailLabels } from "./gmail-client.js";
@@ -7,11 +8,16 @@ import { evaluateInbox } from "./inbox-evaluator.js";
 import type { EmailAssistantContext } from "./email-types.js";
 import { GoogleConnectionService } from "./services/GoogleConnectionService.js";
 
-export function registerEmailAssistantRoutes(input: { context: EmailAssistantContext; request: typeof fetch; service: GoogleConnectionService }): void {
-  const { context, request, service } = input;
+export function registerEmailAssistantRoutes(input: {
+  context: EmailAssistantContext;
+  request: typeof fetch;
+  repository: EmailAssistantRepository;
+  service: GoogleConnectionService;
+}): void {
+  const { context, request, repository, service } = input;
   const categoryQueue = new CategoryEvaluationQueue();
   registerConnectionRoutes(context, request, service);
-  registerEvaluationRoutes(context, request, service, categoryQueue);
+  registerEvaluationRoutes({ context, request, repository, service, categoryQueue });
 }
 
 function registerConnectionRoutes(context: EmailAssistantContext, request: typeof fetch, service: GoogleConnectionService): void {
@@ -25,17 +31,32 @@ function registerConnectionRoutes(context: EmailAssistantContext, request: typeo
   context.registerRoute({ method: "POST", path: "/disconnect", async handle() { return service.disconnect(); } });
 }
 
-function registerEvaluationRoutes(context: EmailAssistantContext, request: typeof fetch, service: GoogleConnectionService, categoryQueue: CategoryEvaluationQueue): void {
+function registerEvaluationRoutes(input: {
+  context: EmailAssistantContext;
+  request: typeof fetch;
+  repository: EmailAssistantRepository;
+  service: GoogleConnectionService;
+  categoryQueue: CategoryEvaluationQueue;
+}): void {
+  const { context, request, repository, service, categoryQueue } = input;
   context.registerRoute({ method: "GET", path: "/evaluations", async handle() {
     const actions = categoryActions(context.getSetting("category-actions"));
-    return context.database.emailAssistant.listEvaluations().map((evaluation) => withMappedActions(evaluation, actions));
+    return repository.listEvaluations().map((evaluation) => withMappedActions(evaluation, actions));
   } });
-  context.registerRoute({ method: "POST", path: "/confirm-category", async handle({ body }) { return confirmCategory(context, body); } });
-  context.registerRoute({ method: "POST", path: "/evaluate-inbox", async handle() { return evaluateInbox({ context, request, service, categoryQueue }); } });
-  context.registerRoute({ method: "POST", path: "/apply-action", async handle({ body }) { return applyCategoryActions(context, request, service, body); } });
+  context.registerRoute({ method: "POST", path: "/confirm-category", async handle({ body }) {
+    return confirmCategory(context, repository, body);
+  } });
+  context.registerRoute({ method: "POST", path: "/evaluate-inbox", async handle() {
+    return evaluateInbox({ context, request, repository, service, categoryQueue });
+  } });
+  context.registerRoute({ method: "POST", path: "/apply-action", async handle({ body }) {
+    return applyCategoryActions({ context, request, repository, service, body });
+  } });
 }
 
-function confirmCategory(context: EmailAssistantContext, body: unknown): { category: string; suggestedActions?: string[] } {
+function confirmCategory(
+  context: EmailAssistantContext, repository: EmailAssistantRepository, body: unknown,
+): { category: string; suggestedActions?: string[] } {
   if (!isConfirmCategoryInput(body)) throw new Error("category must be a string.");
   const name = body.category.trim();
   if (!name) throw new Error("category must not be empty.");
@@ -44,20 +65,27 @@ function confirmCategory(context: EmailAssistantContext, body: unknown): { categ
   if (!existing) context.setSetting("categories", [...categories, { name, action: "" }]);
   const category = existing?.name ?? name;
   const suggestedActions = actionsForCategory(category, categoryActions(context.getSetting("category-actions")));
-  if (body.messageId) context.database.emailAssistant.confirmEvaluationCategory(body.messageId, category, suggestedActions);
+  if (body.messageId) repository.confirmEvaluationCategory(body.messageId, category, suggestedActions);
   return suggestedActions.length ? { category, suggestedActions } : { category };
 }
 
-async function applyCategoryActions(context: EmailAssistantContext, request: typeof fetch, service: GoogleConnectionService, body: unknown): Promise<{ actions: string[]; appliedAt: string }> {
+async function applyCategoryActions(input: {
+  context: EmailAssistantContext;
+  request: typeof fetch;
+  repository: EmailAssistantRepository;
+  service: GoogleConnectionService;
+  body: unknown;
+}): Promise<{ actions: string[]; appliedAt: string }> {
+  const { context, request, repository, service, body } = input;
   if (!isActionInput(body)) throw new Error("messageId must be a string.");
-  const email = context.database.emailAssistant.listEvaluations().find((item) => item.messageId === body.messageId);
+  const email = repository.listEvaluations().find((item) => item.messageId === body.messageId);
   if (!email?.category) throw new Error(`Email "${body.messageId}" has no confirmed category.`);
   if (email.actionAppliedAt) throw new Error(`Email "${body.messageId}" already has an applied action.`);
   const actions = actionsForCategory(email.category, categoryActions(context.getSetting("category-actions")));
   if (!actions.length) throw new Error(`Category "${email.category}" has no configured actions.`);
   await applyGmailActions(request, await service.accessToken(), body.messageId, actions);
   const appliedAt = new Date().toISOString();
-  context.database.emailAssistant.markEvaluationActionApplied(body.messageId, appliedAt);
+  repository.markEvaluationActionApplied(body.messageId, appliedAt);
   return { actions, appliedAt };
 }
 
