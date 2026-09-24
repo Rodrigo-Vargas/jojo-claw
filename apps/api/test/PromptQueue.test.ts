@@ -28,7 +28,7 @@ describe("PromptQueue", () => {
     const queue = new PromptQueue(new MemoryPluginStorage());
 
     await assert.rejects(
-      queue.enqueue("Text generation", "Fail safely.", failGeneration, responseFromText),
+      queue.enqueue({ pluginName: "Text generation", prompt: "Fail safely.", work: failGeneration, responseFor: responseFromText }),
       /Provider unavailable/,
     );
 

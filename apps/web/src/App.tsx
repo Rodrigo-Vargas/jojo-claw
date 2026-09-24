@@ -7,6 +7,7 @@ import { toolCallingWebPlugin } from "@jojo-claw/tool-calling-plugin/web";
 import { promptsWebPlugin } from "@jojo-claw/prompt-plugin/web";
 import { mountWebPlugins } from "./plugin-registry.js";
 import { PromptQueueWidget } from "./PromptQueueWidget.js";
+import { ConversationPage } from "./ConversationPage.js";
 
 // Installed browser plugins are deliberately composed here at build time.
 const pages = mountWebPlugins([
@@ -21,8 +22,8 @@ const defaultPage = pages[0];
 
 export function App() {
   const [path, setPath] = useState(() => window.location.pathname);
-  const page =
-    pages.find((candidate) => candidate.path === path) ?? defaultPage;
+  const page = pages.find((candidate) => candidate.path === path) ?? defaultPage;
+  const conversationId = conversationIdFromPath(path);
 
   useEffect(() => {
     const handlePopState = () => setPath(window.location.pathname);
@@ -78,11 +79,18 @@ export function App() {
           <span className="connection">● API connected</span>
         </header>
         <Suspense fallback={<p className="muted">Loading page…</p>}>
-          <Page />
+          {conversationId === undefined
+            ? <Page />
+            : <ConversationPage conversationId={conversationId} />}
         </Suspense>
       </main>
 
-      <PromptQueueWidget />
+      <PromptQueueWidget onSelect={(id) => navigate(`/conversations/${id}`)} />
     </div>
   );
+}
+
+function conversationIdFromPath(path: string): number | undefined {
+  const match = /^\/conversations\/(\d+)$/.exec(path);
+  return match ? Number(match[1]) : undefined;
 }

@@ -2,9 +2,9 @@ import type {
   GenerateWithToolsResult,
   JsonSettingValue,
   PluginContext,
-  ToolCall,
   ToolDefinition,
   ToolMessage,
+  ToolCallRecord,
 } from '@jojo-claw/core'
 
 export interface ToolCallingRunResult {
@@ -13,20 +13,13 @@ export interface ToolCallingRunResult {
   calls: Array<ToolCallRecord>
 }
 
-interface ToolCallRecord {
-  id: string
-  name: string
-  arguments: Record<string, JsonSettingValue>
-  result: string
-}
-
 export type ToolExecutor = (
   argumentsValue: Record<string, JsonSettingValue>,
 ) => unknown | Promise<unknown>
 
 /** Runs bounded model/tool rounds, returning calculator results to the next model message. */
 export async function runToolCallingAgent(
-  context: Pick<PluginContext, 'generateWithTools'>,
+  context: Pick<PluginContext, 'generateWithTools' | 'recordToolCallResult'>,
   prompt: string,
   tools: ToolDefinition[],
   executors: ReadonlyMap<string, ToolExecutor>,
@@ -37,7 +30,9 @@ export async function runToolCallingAgent(
     const response = await context.generateWithTools({ messages, tools })
     if (response.toolCalls.length === 0) return completedRun(response, calls)
     messages.push({ role: 'assistant', content: response.text, toolCalls: response.toolCalls })
-    await appendToolResults(messages, calls, response.toolCalls, executors)
+    await appendToolResults(messages, calls, response, {
+      executors, recordToolCallResult: context.recordToolCallResult,
+    })
   }
   throw new Error(
     'Tool calling exceeded 5 rounds; expected the model to provide a final answer.',
@@ -55,17 +50,24 @@ function completedRun(
 async function appendToolResults(
   messages: ToolMessage[],
   calls: ToolCallingRunResult['calls'],
-  requestedCalls: ToolCall[],
-  executors: ReadonlyMap<string, ToolExecutor>,
+  response: GenerateWithToolsResult,
+  services: ToolExecutionServices,
 ): Promise<void> {
-  for (const call of requestedCalls) {
-    const executor = executors.get(call.name)
+  for (const call of response.toolCalls) {
+    const executor = services.executors.get(call.name)
     const result = executor
       ? await invokeTool(executor, call.arguments)
       : `Error: unknown tool ${call.name}.`
-    calls.push({ id: call.id, name: call.name, arguments: call.arguments, result })
+    const record = { id: call.id, name: call.name, arguments: call.arguments, result }
+    calls.push(record)
+    services.recordToolCallResult(response.conversationId, record)
     messages.push({ role: 'tool', content: result, toolCallId: call.id })
   }
+}
+
+interface ToolExecutionServices {
+  executors: ReadonlyMap<string, ToolExecutor>
+  recordToolCallResult: PluginContext['recordToolCallResult']
 }
 
 async function invokeTool(

@@ -46,6 +46,15 @@ export interface GenerateWithToolsInput {
 
 export interface GenerateWithToolsResult extends GenerateTextResult {
   toolCalls: ToolCall[]
+  conversationId?: number
+}
+
+/** A completed tool invocation retained with its model conversation. */
+export interface ToolCallRecord {
+  id: string
+  name: string
+  arguments: Record<string, JsonSettingValue>
+  result: string
 }
 
 export interface LlmProvider {
@@ -137,6 +146,7 @@ export function pluginRedirect(location: string, status: 302 | 303 = 302): Plugi
 export interface PluginContext {
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>
   generateWithTools(input: GenerateWithToolsInput): Promise<GenerateWithToolsResult>
+  recordToolCallResult(conversationId: number | undefined, call: ToolCallRecord): void
   storage: PluginStorage
   registerRoute(route: PluginRoute): void
   registerSecret(secret: SecretDefinition): void

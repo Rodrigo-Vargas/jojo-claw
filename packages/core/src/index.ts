@@ -18,6 +18,7 @@ export type {
   PromptDefinition,
   PromptOperations,
   ToolCall,
+  ToolCallRecord,
   ToolDefinition,
   ToolMessage,
   SecretDefinition,

@@ -10,8 +10,10 @@ import {
   type PlatformPlugin,
   type PromptDefinition,
   type PromptOperations,
+  type JsonSettingValue,
   type PluginRoute,
   type PluginRouteRedirect,
+  type ToolCall,
 } from "@jojo-claw/core";
 import { createDatabasePlugin } from "@jojo-claw/database-plugin";
 import {
@@ -27,7 +29,7 @@ import { createEmailAssistantPlugin } from "@jojo-claw/email-assistant";
 import { createPromptsPlugin, PromptRegistry } from "@jojo-claw/prompt-plugin";
 import { textPlugin } from "@jojo-claw/text-plugin";
 import { toolCallingPlugin } from "@jojo-claw/tool-calling-plugin";
-import { PromptQueue } from "./PromptQueue.js";
+import { PromptQueue, type PromptConversation } from "./PromptQueue.js";
 
 export interface JojoClawOptions {
   provider?: LlmProvider;
@@ -86,6 +88,11 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       );
       if (platformResponse)
         return sendJson(response, platformResponse.status, platformResponse.body);
+      const conversationId = conversationIdFromPath(url.pathname);
+      if (request.method === "POST" && conversationId !== undefined)
+        return sendConversationMessage(request, response, {
+          conversationId, promptQueue, provider,
+        });
       const route = routes.get(`${request.method ?? "GET"} ${url.pathname}`);
       if (route) {
         const result = await route.handle({
@@ -134,6 +141,12 @@ async function platformResponseFor(
     return { status: 200, body: { items: services.promptQueue.snapshot() } };
   if (pathname === "/api/conversations")
     return { status: 200, body: { conversations: services.promptQueue.conversations() } };
+  const conversationId = conversationIdFromPath(pathname);
+  if (conversationId !== undefined) {
+    const messages = services.promptQueue.conversationHistory(conversationId);
+    if (!messages) return { status: 404, body: { error: "Conversation not found." } };
+    return { status: 200, body: { conversation: messages.at(-1), messages } };
+  }
   if (pathname !== "/api/ollama/models") return undefined;
   if (!(services.provider instanceof OllamaProvider))
     return { status: 404, body: { error: "Ollama is not configured." } };
@@ -191,22 +204,30 @@ function mountPlugins(
   for (const plugin of plugins)
     plugin.register({
       generateText: (input) =>
-        services.promptQueue.enqueue(
-          plugin.manifest.name,
-          input.prompt,
-          () => services.provider.generate(input),
-          (result) => ({ text: result.text, model: result.model }),
-        ),
+        services.promptQueue.enqueue({
+          pluginName: plugin.manifest.name, prompt: input.prompt,
+          work: () => services.provider.generate(input),
+          responseFor: (result) => ({ text: result.text, model: result.model }),
+          options: { system: input.system, model: input.model },
+        }),
       generateWithTools: (input) => {
         if (!services.provider.generateWithTools)
           throw new Error("The configured LLM provider does not support tool calling.");
-        return services.promptQueue.enqueue(
-          plugin.manifest.name,
-          promptFromMessages(input.messages),
-          () => services.provider.generateWithTools!(input),
-          (result) => ({ text: result.text, model: result.model }),
-        );
+        let conversationId: number | undefined;
+        return services.promptQueue.enqueue({
+          pluginName: plugin.manifest.name, prompt: promptFromMessages(input.messages),
+          work: async () => ({
+            ...(await services.provider.generateWithTools!(input)), conversationId,
+          }),
+          responseFor: (result) => ({
+            text: result.text, model: result.model,
+            toolCalls: result.toolCalls.map(toolCallForConversation),
+          }),
+          onCreated: (id) => { conversationId = id; },
+        });
       },
+      recordToolCallResult: (conversationId, call) =>
+        services.promptQueue.recordToolCallResult(conversationId, call),
       storage: services.storage.forPlugin(plugin.manifest.id),
       registerRoute: (route) => {
         if (!route.path.startsWith("/"))
@@ -234,12 +255,67 @@ function mountPlugins(
   return routes;
 }
 
+function toolCallForConversation(call: ToolCall): {
+  id: string; name: string; arguments: Record<string, JsonSettingValue>;
+} {
+  return { id: call.id, name: call.name, arguments: call.arguments };
+}
+
 function promptFromMessages(messages: { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role === "user") return message.content;
   }
   return "Tool-assisted generation";
+}
+
+function conversationIdFromPath(pathname: string): number | undefined {
+  const match = /^\/api\/conversations\/(\d+)$/.exec(pathname);
+  return match ? Number(match[1]) : undefined;
+}
+
+function isConversationMessageInput(value: unknown): value is { message: string } {
+  return typeof value === "object" && value !== null
+    && typeof (value as { message?: unknown }).message === "string"
+    && (value as { message: string }).message.trim().length > 0;
+}
+
+function conversationPrompt(history: PromptConversation[], message: string): string {
+  const turns = history.flatMap((turn) => [
+    `User: ${turn.prompt}`,
+    ...(turn.response ? [`Assistant: ${turn.response.text}`] : []),
+  ]);
+  return [...turns, `User: ${message}`, "Assistant:"].join("\n\n");
+}
+
+async function sendConversationMessage(
+  request: IncomingMessage, response: ServerResponse, services: ConversationMessageServices,
+): Promise<void> {
+  const input = await readJson<unknown>(request);
+  if (!isConversationMessageInput(input)) throw new Error("message must be a non-empty string.");
+  const parent = services.promptQueue.conversation(services.conversationId);
+  if (!parent) return sendJson(response, 404, { error: "Conversation not found." });
+  if (parent.status !== "succeeded")
+    return sendJson(response, 409, {
+      error: "Only completed conversations can receive a new message.",
+    });
+  const history = services.promptQueue.conversationHistory(services.conversationId) ?? [];
+  const result = await services.promptQueue.enqueue({
+    pluginName: parent.pluginName, prompt: input.message,
+    work: () => services.provider.generate({
+      prompt: conversationPrompt(history, input.message),
+      system: parent.system, model: parent.model,
+    }),
+    responseFor: (generation) => ({ text: generation.text, model: generation.model }),
+    options: { parentConversationId: parent.id, system: parent.system, model: parent.model },
+  });
+  sendJson(response, 200, { result });
+}
+
+interface ConversationMessageServices {
+  conversationId: number;
+  promptQueue: PromptQueue;
+  provider: LlmProvider;
 }
 
 function isPluginRouteRedirect(value: unknown): value is PluginRouteRedirect {

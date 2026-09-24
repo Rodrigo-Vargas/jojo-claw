@@ -90,7 +90,7 @@ describe('Jojo Claw HTTP API', () => {
   it('mounts the installed text package and lets it use the platform provider', async () => {
     const calls: unknown[] = []
     const provider: LlmProvider = { generate: async (input) => { calls.push(input); return { text: 'Platform response', model: 'test-model' } } }
-    const server = createJojoClawServer({ provider }).listen(0)
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
     await once(server, 'listening')
     const address = server.address(); assert(address && typeof address !== 'string')
     const baseUrl = `http://127.0.0.1:${address.port}`
@@ -176,6 +176,48 @@ describe('Jojo Claw HTTP API', () => {
     } finally { secondServer.close(); await once(secondServer, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
   })
 
+  it('returns a conversation transcript and queues its follow-up after earlier work', async () => {
+    const prompts: string[] = []
+    const provider: LlmProvider = {
+      generate: async (input) => {
+        prompts.push(input.prompt)
+        return { text: `Answer ${prompts.length}`, model: 'test-model' }
+      },
+    }
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      await fetch(`${baseUrl}/api/plugins/text/generate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'First question' }),
+      })
+      const followUp = await fetch(`${baseUrl}/api/conversations/1`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'Follow-up question' }),
+      })
+      assert.equal(followUp.status, 200)
+      assert.equal(prompts[1], [
+        'User: First question', 'Assistant: Answer 1',
+        'User: Follow-up question', 'Assistant:',
+      ].join('\n\n'))
+      const detail = await fetch(`${baseUrl}/api/conversations/2`)
+      const payload = await detail.json() as {
+        conversation: { id: number; parentConversationId?: number }
+        messages: Array<{ prompt: string; response?: { text: string } }>
+      }
+      assert.equal(payload.conversation.id, 2)
+      assert.equal(payload.conversation.parentConversationId, 1)
+      assert.deepEqual(payload.messages.map((message) => message.prompt), [
+        'First question', 'Follow-up question',
+      ])
+      assert.deepEqual(payload.messages.map((message) => message.response?.text), [
+        'Answer 1', 'Answer 2',
+      ])
+    } finally { server.close(); await once(server, 'close') }
+  })
+
   it('returns tool output to the model before returning its final answer', async () => {
     const toolRequests: GenerateWithToolsInput[] = []
     const provider: LlmProvider = {
@@ -187,13 +229,20 @@ describe('Jojo Claw HTTP API', () => {
         return { text: 'The answer is 42.', model: 'test', toolCalls: [] }
       },
     }
-    const server = createJojoClawServer({ provider }).listen(0)
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
     await once(server, 'listening')
     const address = server.address(); assert(address && typeof address !== 'string')
     try {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/plugins/tool-calling/run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Calculate 6 times 7.' }) })
       assert.deepEqual(await response.json(), { result: { text: 'The answer is 42.', model: 'test', calls: [{ id: 'call-1', name: 'calculate', arguments: { expression: '6 * 7' }, result: '42' }] } })
       assert.deepEqual(toolRequests[1]?.messages.at(-1), { role: 'tool', content: '42', toolCallId: 'call-1' })
+      const conversation = await fetch(`http://127.0.0.1:${address.port}/api/conversations/1`)
+      const payload = await conversation.json() as {
+        conversation: { response?: { toolCalls?: Array<{ result?: string }> } }
+      }
+      assert.deepEqual(payload.conversation.response?.toolCalls, [{
+        id: 'call-1', name: 'calculate', arguments: { expression: '6 * 7' }, result: '42',
+      }])
     } finally { server.close(); await once(server, 'close') }
   })
 

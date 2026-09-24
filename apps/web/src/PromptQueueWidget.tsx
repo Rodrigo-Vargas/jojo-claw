@@ -19,7 +19,7 @@ interface PromptQueueResponse {
 /** Renders the local model queue, refreshed while users work.
  * Example: `<PromptQueueWidget />`.
  */
-export function PromptQueueWidget() {
+export function PromptQueueWidget({ onSelect }: { onSelect: (id: number) => void }) {
   const [items, setItems] = useState<PromptQueueItem[]>([]);
   const [error, setError] = useState<string>();
   const previousActiveCount = useRef<number>();
@@ -52,16 +52,18 @@ export function PromptQueueWidget() {
       </div>
       {items.length === 0 && <p className="muted">No prompts in the queue.</p>}
       <div className="queue-list">
-        {items.slice().reverse().map((item) => <QueueItem item={item} key={item.id} />)}
+        {items.slice().reverse().map((item) => (
+          <QueueItem item={item} key={item.id} onSelect={onSelect} />
+        ))}
       </div>
       {error && <div className="notice error">{error}</div>}
     </aside>
   );
 }
 
-function QueueItem({ item }: { item: PromptQueueItem }) {
+function QueueItem({ item, onSelect }: { item: PromptQueueItem; onSelect: (id: number) => void }) {
   return (
-    <article className="queue-item">
+    <button className="queue-item" onClick={() => onSelect(item.id)}>
       <span className={`queue-state ${item.status}`} aria-hidden="true" />
       <div>
         <div className="queue-item-heading">
@@ -70,7 +72,7 @@ function QueueItem({ item }: { item: PromptQueueItem }) {
         </div>
         <p title={item.prompt}>{promptPreview(item.prompt)}</p>
       </div>
-    </article>
+    </button>
   );
 }
 
