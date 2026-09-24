@@ -11,6 +11,7 @@ export interface EmailEvaluation {
   categoryError?: string;
   suggestedActions?: string[];
   actionAppliedAt?: string;
+  categoryPromptProposal?: string;
 }
 
 /** Displays one evaluated email and its available category and Gmail actions.
@@ -36,6 +37,7 @@ export function EmailEvaluationCard(props: {
     <h3>{email.subject || "No subject"}</h3>
     <p>{email.description}</p>
     <SuggestedActions {...props} />
+    <PromptProposal email={email} />
   </article>;
 }
 
@@ -77,6 +79,13 @@ function SuggestedActions(props: {
       {props.applying ? "Applying…" : "Apply actions"}
     </button>}
   </p>;
+}
+function PromptProposal({ email }: { email: EmailEvaluation }) {
+  if (!email.categoryPromptProposal) return null;
+  return <section className="email-prompt-proposal">
+    <strong>Proposed Email category instructions</strong>
+    <pre>{email.categoryPromptProposal}</pre>
+  </section>;
 }
 
 function formatDate(value: string): string {

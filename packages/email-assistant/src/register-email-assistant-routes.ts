@@ -1,6 +1,7 @@
 import { pluginRedirect } from "@jojo-claw/core";
 import { EmailAssistantRepository } from "./EmailAssistantRepository.js";
 import { CategoryEvaluationQueue } from "./category-evaluation-queue.js";
+import { proposeCategoryPromptChange } from "./category-prompt-proposal.js";
 import {
   actionsForCategory,
   categoryActions,
@@ -99,9 +100,9 @@ function registerEvaluationRoutes(input: {
   });
 }
 
-function confirmCategory(
+async function confirmCategory(
   context: EmailAssistantContext, repository: EmailAssistantRepository, body: unknown,
-): { category: string; suggestedActions?: string[] } {
+): Promise<{ category: string; suggestedActions?: string[]; promptProposal?: string }> {
   if (!isConfirmCategoryInput(body)) throw new Error("category must be a string.");
   const name = body.category.trim();
   if (!name) throw new Error("category must not be empty.");
@@ -111,10 +112,17 @@ function confirmCategory(
   const category = existing ?? name;
   const actions = categoryActions(context.getSetting("category-actions"));
   const suggestedActions = actionsForCategory(category, actions);
+  const email = body.messageId ? repository.getEvaluation(body.messageId) : undefined;
+  const promptProposal = !existing && email
+    ? await proposeCategoryPromptChange(context, category, email)
+    : undefined;
   if (body.messageId) {
-    repository.confirmEvaluationCategory(body.messageId, category, suggestedActions);
+    repository.confirmEvaluationCategory(
+      body.messageId, category, suggestedActions, promptProposal,
+    );
   }
-  return suggestedActions.length ? { category, suggestedActions } : { category };
+  const result = suggestedActions.length ? { category, suggestedActions } : { category };
+  return promptProposal ? { ...result, promptProposal } : result;
 }
 
 async function applyCategoryActions(input: {

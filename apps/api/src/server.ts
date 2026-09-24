@@ -222,6 +222,8 @@ function mountPlugins(
       definePrompt: (definition: PromptDefinition) =>
         services.prompts.define(plugin.manifest.id, definition),
       getPrompt: (id) => services.prompts.get(plugin.manifest.id, id),
+      setPrompt: (pluginId, id, content) =>
+        services.prompts.set(pluginId, id, content),
     });
   return routes;
 }

@@ -24,6 +24,7 @@ export interface EmailEvaluation {
   categoryStatus: "processing" | "suggested-new" | "suggested-existing" | "confirmed" | "failed";
   categoryError?: string;
   suggestedActions?: string[];
+  categoryPromptProposal?: string;
   actionAppliedAt?: string;
 }
 

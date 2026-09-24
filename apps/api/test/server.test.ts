@@ -9,6 +9,7 @@ import { createEmailAssistantPlugin } from '@jojo-claw/email-assistant'
 import type { GenerateWithToolsInput } from '@jojo-claw/core'
 import { OllamaProvider } from '@jojo-claw/ollama'
 import { createJojoClawServer } from '../src/server.js'
+import { setPromptContent } from '@jojo-claw/tool-calling-plugin'
 
 function temporarySecretFile(): { directory: string; path: string } { const directory = mkdtempSync(join(tmpdir(), 'jojo-claw-secrets-')); return { directory, path: join(directory, '.env') } }
 async function waitForCategoryResults(baseUrl: string): Promise<Array<Record<string, unknown>>> {
@@ -22,6 +23,14 @@ async function waitForCategoryResults(baseUrl: string): Promise<Array<Record<str
 }
 
 describe('Jojo Claw HTTP API', () => {
+  it('updates a prompt through the prompt tool', () => {
+    const updates: Array<{ pluginId: string; id: string; content: string }> = []
+    const result = setPromptContent({ setPrompt(pluginId, id, content) { updates.push({ pluginId, id, content }) } }, { pluginId: 'summarizer', id: 'instructions', content: 'Use one sentence.' })
+    assert.deepEqual(result, { pluginId: 'summarizer', id: 'instructions', content: 'Use one sentence.' })
+    assert.deepEqual(updates, [{ pluginId: 'summarizer', id: 'instructions', content: 'Use one sentence.' }])
+    assert.throws(() => setPromptContent({ setPrompt() {} }, { pluginId: '', id: 'instructions', content: 'Text' }), /expected a non-empty string/)
+  })
+
   it('adapts platform tool messages to Ollama’s function-call wire format', async () => {
     const requests: unknown[] = []
     const request: typeof fetch = async (_input, init) => {
@@ -305,7 +314,10 @@ describe('Jojo Claw HTTP API', () => {
       const nextBatch = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
       assert.deepEqual((await nextBatch.json() as { result: { evaluations: unknown[] } }).result.evaluations, [])
       const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters', messageId: 'two' }) })
-      assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters' } })
+      assert.deepEqual(await confirmation.json(), { result: { category: 'Newsletters', promptProposal: 'Description 3' } })
+      assert.match(prompts[2] ?? '', /Choose the best category using one provided tool call/)
+      assert.match(prompts[2] ?? '', /Newly approved category: Newsletters/)
+      assert.match(prompts[2] ?? '', /Description 2/)
       await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'category-actions', value: [{ category: 'Work', actions: ['mark-read', 'trash'] }] }) })
       const workConfirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Work', messageId: 'one' }) })
       assert.deepEqual(await workConfirmation.json(), { result: { category: 'Work', suggestedActions: ['mark-read', 'trash'] } })
@@ -316,7 +328,7 @@ describe('Jojo Claw HTTP API', () => {
         { url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/one/trash', body: undefined },
       ])
       const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
-      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed' })
+      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed', categoryPromptProposal: 'Description 3' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
       assert.deepEqual(categories?.value, ['Work', 'Personal', 'Newsletters'])

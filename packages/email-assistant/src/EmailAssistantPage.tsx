@@ -121,7 +121,7 @@ export default function EmailAssistantPage() {
         },
       );
       const payload = (await response.json()) as {
-        result?: { category: string; suggestedActions?: string[] };
+        result?: { category: string; suggestedActions?: string[]; promptProposal?: string };
         error?: string;
       };
       if (!response.ok || !payload.result)
@@ -135,6 +135,7 @@ export default function EmailAssistantPage() {
                 suggestedCategory: undefined,
                 categoryStatus: "confirmed",
                 suggestedActions: payload.result?.suggestedActions,
+                categoryPromptProposal: payload.result?.promptProposal,
               }
             : item,
         ),

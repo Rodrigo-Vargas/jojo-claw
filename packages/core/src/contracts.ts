@@ -105,6 +105,7 @@ export interface PromptDefinition {
 export interface PromptOperations {
   define(pluginId: string, definition: PromptDefinition): void
   get(pluginId: string, id: string): string
+  set(pluginId: string, id: string, content: string): void
 }
 
 /** A route contributed by an installed plugin package. */
@@ -145,6 +146,7 @@ export interface PluginContext {
   setSetting(id: string, value: PluginSettingValue): void
   definePrompt(definition: PromptDefinition): void
   getPrompt(id: string): string
+  setPrompt(pluginId: string, id: string, content: string): void
 }
 
 /** A Node package that extends the platform at API composition time. */

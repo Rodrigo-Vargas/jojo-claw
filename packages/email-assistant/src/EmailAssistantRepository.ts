@@ -46,17 +46,24 @@ export class EmailAssistantRepository {
       .map((entry) => entry.value)
       .sort(compareEvaluations);
   }
+  getEvaluation(messageId: string): EmailEvaluation | undefined {
+    return this.storage.get<EmailEvaluation>(evaluationKey(messageId));
+  }
+
 
   saveEvaluation(evaluation: EmailEvaluation): void {
     this.storage.set(evaluationKey(evaluation.messageId), evaluation);
   }
 
   confirmEvaluationCategory(
-    messageId: string, category: string, suggestedActions?: string[],
+    messageId: string,
+    category: string,
+    suggestedActions?: string[],
+    categoryPromptProposal?: string,
   ): void {
     this.updateEvaluation(messageId, (evaluation) => ({
       ...evaluation, category, suggestedActions, suggestedCategory: undefined,
-      categoryStatus: "confirmed", categoryError: undefined,
+      categoryStatus: "confirmed", categoryError: undefined, categoryPromptProposal,
     }));
   }
 
