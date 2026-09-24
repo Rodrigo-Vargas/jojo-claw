@@ -15,6 +15,7 @@ export interface DatabasePluginOptions {
 export interface ConfiguredDatabasePlugin {
   plugin: PlatformPlugin;
   storage: StorageOperations;
+  close(): void;
 }
 
 interface StorageRow {
@@ -84,5 +85,6 @@ export function createDatabasePlugin(
   return {
     plugin: { manifest: databasePluginManifest, register() {} },
     storage: { forPlugin: (pluginId) => storageFor(connection, pluginId) },
+    close: () => connection.close(),
   };
 }

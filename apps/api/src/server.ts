@@ -55,7 +55,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
   const prompts = new PromptRegistry(
     options.promptsDirectory ?? resolve(process.cwd(), ".jojo-claw", "prompts"),
   );
-  const promptQueue = new PromptQueue();
+  const promptQueue = new PromptQueue(database.storage.forPlugin("prompt-queue"));
   const plugins = [
     database.plugin,
     createSecretsPlugin(secrets),
@@ -71,7 +71,7 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
     promptQueue,
     prompts,
   });
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     setCors(response);
     if (request.method === "OPTIONS") return response.end();
     const url = new URL(
@@ -114,6 +114,8 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       );
     }
   });
+  server.on("close", () => database.close());
+  return server;
 }
 
 async function platformResponseFor(
@@ -130,6 +132,8 @@ async function platformResponseFor(
     };
   if (pathname === "/api/prompt-queue")
     return { status: 200, body: { items: services.promptQueue.snapshot() } };
+  if (pathname === "/api/conversations")
+    return { status: 200, body: { conversations: services.promptQueue.conversations() } };
   if (pathname !== "/api/ollama/models") return undefined;
   if (!(services.provider instanceof OllamaProvider))
     return { status: 404, body: { error: "Ollama is not configured." } };
@@ -191,6 +195,7 @@ function mountPlugins(
           plugin.manifest.name,
           input.prompt,
           () => services.provider.generate(input),
+          (result) => ({ text: result.text, model: result.model }),
         ),
       generateWithTools: (input) => {
         if (!services.provider.generateWithTools)
@@ -199,6 +204,7 @@ function mountPlugins(
           plugin.manifest.name,
           promptFromMessages(input.messages),
           () => services.provider.generateWithTools!(input),
+          (result) => ({ text: result.text, model: result.model }),
         );
       },
       storage: services.storage.forPlugin(plugin.manifest.id),

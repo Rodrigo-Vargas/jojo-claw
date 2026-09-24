@@ -123,7 +123,7 @@ describe('Jojo Claw HTTP API', () => {
         return { text: input.prompt, model: 'test-model' }
       },
     }
-    const server = createJojoClawServer({ provider }).listen(0)
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
     await once(server, 'listening')
     const address = server.address(); assert(address && typeof address !== 'string')
     const baseUrl = `http://127.0.0.1:${address.port}`
@@ -142,6 +142,38 @@ describe('Jojo Claw HTTP API', () => {
       const completed = await fetch(`${baseUrl}/api/prompt-queue`)
       assert.deepEqual((await completed.json() as { items: Array<{ status: string }> }).items.map((item) => item.status), ['succeeded', 'succeeded'])
     } finally { server.close(); await once(server, 'close') }
+  })
+
+  it('persists completed prompt conversations for later retrieval', async () => {
+    const storage = temporarySecretFile()
+    const provider: LlmProvider = {
+      generate: async () => ({ text: 'Saved response', model: 'test-model' }),
+    }
+    const firstServer = createJojoClawServer({ provider, databasePath: join(storage.directory, 'conversations.db') }).listen(0)
+    await once(firstServer, 'listening')
+    const firstAddress = firstServer.address(); assert(firstAddress && typeof firstAddress !== 'string')
+    try {
+      await fetch(`http://127.0.0.1:${firstAddress.port}/api/plugins/text/generate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Remember this.' }),
+      })
+    } finally { firstServer.close(); await once(firstServer, 'close') }
+
+    const secondServer = createJojoClawServer({ provider, databasePath: join(storage.directory, 'conversations.db') }).listen(0)
+    await once(secondServer, 'listening')
+    const secondAddress = secondServer.address(); assert(secondAddress && typeof secondAddress !== 'string')
+    try {
+      const response = await fetch(`http://127.0.0.1:${secondAddress.port}/api/conversations`)
+      const payload = await response.json() as { conversations: Array<Record<string, unknown>> }
+      assert.equal(payload.conversations.length, 1)
+      assert.deepEqual(payload.conversations[0], {
+        id: 1, pluginName: 'Text generation', prompt: 'Remember this.', status: 'succeeded',
+        createdAt: payload.conversations[0]?.createdAt,
+        completedAt: payload.conversations[0]?.completedAt,
+        response: { text: 'Saved response', model: 'test-model' },
+      })
+      assert.equal(typeof payload.conversations[0]?.createdAt, 'string')
+      assert.equal(typeof payload.conversations[0]?.completedAt, 'string')
+    } finally { secondServer.close(); await once(secondServer, 'close'); rmSync(storage.directory, { recursive: true, force: true }) }
   })
 
   it('returns tool output to the model before returning its final answer', async () => {
