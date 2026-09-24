@@ -257,7 +257,7 @@ function mergeEvaluations(
   for (const email of incoming) evaluations.set(email.messageId, email);
   return [...evaluations.values()].sort(
     (a, b) =>
-      a.receivedAt.localeCompare(b.receivedAt) ||
+      b.receivedAt.localeCompare(a.receivedAt) ||
       a.messageId.localeCompare(b.messageId),
   );
 }

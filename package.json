@@ -16,7 +16,7 @@
     "dev:web": "npm run dev --workspace=@jojo-claw/web",
     "start": "npm run start --workspace=@jojo-claw/api",
     "build": "tsc && npm run build --workspace=@jojo-claw/web",
-    "test": "tsx --test apps/api/test/**/*.test.ts",
+    "test": "tsx --test apps/api/test/**/*.test.ts apps/web/test/**/*.test.ts",
     "lint": "eslint .",
     "prepare": "husky"
   },

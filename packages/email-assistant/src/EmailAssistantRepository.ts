@@ -110,6 +110,6 @@ function evaluationKey(messageId: string): string {
 }
 
 function compareEvaluations(left: EmailEvaluation, right: EmailEvaluation): number {
-  return left.receivedAt.localeCompare(right.receivedAt)
+  return right.receivedAt.localeCompare(left.receivedAt)
     || left.messageId.localeCompare(right.messageId);
 }

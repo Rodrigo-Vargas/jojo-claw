@@ -302,15 +302,15 @@ describe('Jojo Claw HTTP API', () => {
       assert.equal(started.result.evaluations.length, 2)
       assert.ok(started.result.evaluations.some((email) => email.categoryStatus === 'processing'))
       assert.deepEqual(await waitForCategoryResults(baseUrl), [
-        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing' },
         { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', suggestedCategory: 'Newsletters', categoryStatus: 'suggested-new' },
+        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing' },
       ])
       assert.equal(prompts.length, 2)
       assert.match(prompts[0], /Hello/)
       assert.match(prompts[1], /World/)
       assert.deepEqual(toolRequests.map((request) => request.tools.map((tool) => tool.name)), [['suggest_new_category', 'confirm_existing_category'], ['suggest_new_category', 'confirm_existing_category']])
       const saved = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
-      assert.deepEqual((await saved.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['one', 'two'])
+      assert.deepEqual((await saved.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['two', 'one'])
       const nextBatch = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
       assert.deepEqual((await nextBatch.json() as { result: { evaluations: unknown[] } }).result.evaluations, [])
       const confirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Newsletters', messageId: 'two' }) })

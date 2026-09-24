@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  browserNotifications,
+  notifyQueueDrained,
+  queueJustDrained,
+} from "./queue-empty-notification.js";
 
 interface PromptQueueItem {
   id: number;
@@ -17,6 +22,7 @@ interface PromptQueueResponse {
 export function PromptQueueWidget() {
   const [items, setItems] = useState<PromptQueueItem[]>([]);
   const [error, setError] = useState<string>();
+  const previousActiveCount = useRef<number>();
 
   useEffect(() => {
     void loadPromptQueue(setItems, setError);
@@ -25,6 +31,14 @@ export function PromptQueueWidget() {
   }, []);
 
   const activeCount = items.filter(isActive).length;
+  useEffect(() => {
+    const previousCount = previousActiveCount.current;
+    previousActiveCount.current = activeCount;
+    if (previousCount === undefined || !queueJustDrained(previousCount, activeCount)) return;
+    const notifications = browserNotifications(window);
+    if (notifications) notifyQueueDrained(notifications);
+  }, [activeCount]);
+
   return (
     <aside className="details prompt-queue" aria-label="Prompt queue">
       <div className="queue-heading">
