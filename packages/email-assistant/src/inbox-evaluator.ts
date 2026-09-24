@@ -5,7 +5,6 @@ import { gmailApiBaseUrl, readEmail } from "./gmail-client.js";
 import { emailCategories, matchingCategory } from "./category-settings.js";
 import type {
   EmailAssistantContext,
-  EmailCategory,
   EmailEvaluation,
   GmailEmail,
 } from "./email-types.js";
@@ -105,7 +104,7 @@ async function evaluateCategory(
 function categoryMessages(
   context: EmailAssistantContext,
   email: GmailEmail,
-  categories: EmailCategory[],
+  categories: string[],
 ) {
   return [
     { role: "system" as const, content: context.getPrompt("email-category-system") },
@@ -116,10 +115,10 @@ function categoryMessages(
 function categoryPrompt(
   context: EmailAssistantContext,
   email: GmailEmail,
-  categories: EmailCategory[],
+  categories: string[],
 ): string {
   const list = categories.length
-    ? categories.map((category) => `- ${category.name}`).join("\n")
+    ? categories.map((category) => `- ${category}`).join("\n")
     : "(No categories have been configured.)";
   return interpolateTemplate(context.getPrompt("email-category"), {
     categories: list,
@@ -166,7 +165,7 @@ function saveToolCategorySuggestion(
   repository: EmailAssistantRepository,
   messageId: string,
   calls: ToolCall[],
-  categories: EmailCategory[],
+  categories: string[],
 ): void {
   if (calls.length !== 1) {
     throw new Error(`Expected exactly one category tool call, received ${calls.length}.`);
@@ -186,7 +185,7 @@ function saveNewSuggestion(
   repository: EmailAssistantRepository,
   messageId: string,
   category: string,
-  categories: EmailCategory[],
+  categories: string[],
 ): void {
   if (matchingCategory(category, categories)) {
     throw new Error(`New category suggestion "${category}" already exists.`);
@@ -198,13 +197,13 @@ function saveExistingSuggestion(
   repository: EmailAssistantRepository,
   messageId: string,
   category: string,
-  categories: EmailCategory[],
+  categories: string[],
 ): void {
   const existing = matchingCategory(category, categories);
   if (!existing) {
     throw new Error(`Existing category suggestion "${category}" is not configured.`);
   }
-  repository.saveCategorySuggestion(messageId, existing.name, "suggested-existing");
+  repository.saveCategorySuggestion(messageId, existing, "suggested-existing");
 }
 
 function toolCategory(call: ToolCall): string {

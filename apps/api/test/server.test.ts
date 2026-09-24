@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -281,7 +281,7 @@ describe('Jojo Claw HTTP API', () => {
     const baseUrl = `http://127.0.0.1:${address.port}`
     try {
       await fetch(`${baseUrl}/api/plugins/secrets/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'google-client-id', value: 'client-id' }) })
-      await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'categories', value: [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }] }) })
+      await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'categories', value: ['Work', 'Personal'] }) })
       const connect = await fetch(`${baseUrl}/api/plugins/email-assistant/connect`, { redirect: 'manual' })
       assert.equal(connect.status, 302)
       const authorization = new URL(connect.headers.get('location') ?? '')
@@ -319,7 +319,7 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
-      assert.deepEqual(categories?.value, [{ name: 'Work', action: 'archive' }, { name: 'Personal', action: 'keep' }, { name: 'Newsletters', action: '' }])
+      assert.deepEqual(categories?.value, ['Work', 'Personal', 'Newsletters'])
     } finally { server.close(); await once(server, 'close'); rmSync(secretFile.directory, { recursive: true, force: true }) }
   })
 
@@ -402,4 +402,24 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual(await response.json(), { result: { configured: true } })
     } finally { if (server.listening) { server.close(); await once(server, 'close') }; rmSync(secretFile.directory, { recursive: true, force: true }) }
   })
+  it("migrates legacy email-category objects to strings", async () => {
+    const storage = temporarySecretFile()
+    writeFileSync(storage.path, JSON.stringify({
+      "email-assistant:categories": [{ name: " Work ", action: "archive" }, "Personal", {}],
+    }))
+    const server = createJojoClawServer({
+      provider: { generate: async () => ({ text: "unused", model: "test" }) },
+      plugins: [createEmailAssistantPlugin()],
+      settingsFilePath: storage.path,
+    }).listen(0)
+    await once(server, "listening")
+    const address = server.address(); assert(address && typeof address !== "string")
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/plugins/settings/list`, { method: "POST" })
+      const settings = (await response.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings
+      assert.deepEqual(settings.find((setting) => setting.id === "categories")?.value, ["Work", "Personal"])
+      assert.deepEqual(JSON.parse(readFileSync(storage.path, "utf8"))["email-assistant:categories"], ["Work", "Personal"])
+    } finally { server.close(); await once(server, "close"); rmSync(storage.directory, { recursive: true, force: true }) }
+  })
+
 })

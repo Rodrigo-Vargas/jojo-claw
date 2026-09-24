@@ -1,29 +1,21 @@
 import type { EmailEvaluation } from "./email-types.js";
-import type { CategoryAction, EmailCategory } from "./email-types.js";
+import type { CategoryAction } from "./email-types.js";
 
-export function emailCategories(value: unknown): EmailCategory[] {
+export function emailCategories(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap(categoryFromSetting);
-}
-
-function categoryFromSetting(category: unknown): EmailCategory[] {
-  if (typeof category === "string" && category.trim())
-    return [{ name: category.trim(), action: "" }];
-  if (!category || typeof category !== "object") return [];
-  const input = category as { name?: unknown; action?: unknown };
-  if (typeof input.name !== "string" || !input.name.trim()) return [];
-  return [{
-    name: input.name.trim(),
-    action: typeof input.action === "string" ? input.action : "",
-  }];
+  return value
+    .filter((category): category is string =>
+      typeof category === "string" && Boolean(category.trim()),
+    )
+    .map((category) => category.trim());
 }
 
 export function matchingCategory(
   value: string,
-  categories: EmailCategory[],
-): EmailCategory | undefined {
+  categories: string[],
+): string | undefined {
   const normalized = value.trim().toLocaleLowerCase();
-  return categories.find((category) => category.name.trim().toLocaleLowerCase() === normalized);
+  return categories.find((category) => category.toLocaleLowerCase() === normalized);
 }
 
 export function categoryActions(value: unknown): CategoryAction[] {

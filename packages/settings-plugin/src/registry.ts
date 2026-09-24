@@ -30,6 +30,7 @@ export class SettingsRegistry {
     const key = keyOf(pluginId, definition.id);
     if (this.definitions.has(key))
       throw new Error(`Duplicate plugin setting: ${pluginId}/${definition.id}`);
+    this.migrateLegacyValue(key, definition);
     this.definitions.set(key, {
       ...definition,
       pluginId,
@@ -53,6 +54,17 @@ export class SettingsRegistry {
     if (!setting || !isSettingValue(setting, value))
       throw new Error("Invalid plugin setting value.");
     this.values[keyOf(pluginId, id)] = value;
+    this.saveValues();
+  }
+  private migrateLegacyValue(key: string, definition: PluginSettingDefinition): void {
+    const value = this.values[key];
+    if (isSettingValue(definition, value) || !definition.migrateLegacyValue) return;
+    const migrated = definition.migrateLegacyValue(value);
+    if (!isSettingValue(definition, migrated)) return;
+    this.values[key] = migrated;
+    this.saveValues();
+  }
+  private saveValues(): void {
     mkdirSync(dirname(this.storagePath), { recursive: true });
     writeFileSync(
       this.storagePath,

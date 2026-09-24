@@ -36,9 +36,10 @@ function registerEmailSettings(context: Parameters<PlatformPlugin["register"]>[0
   context.registerSetting({
     id: "categories",
     name: "Email categories",
-    type: "list",
+    type: "string-list",
     defaultValue: [],
-    description: "Categories for inbox classification. Each item has a name and optional action.",
+    description: "Categories for inbox classification, one per line.",
+    migrateLegacyValue: migrateEmailCategories,
   });
   context.registerSetting({
     id: "category-actions",
@@ -47,6 +48,18 @@ function registerEmailSettings(context: Parameters<PlatformPlugin["register"]>[0
     defaultValue: [],
     description: categoryActionsDescription,
   });
+}
+
+function migrateEmailCategories(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap(legacyCategoryName);
+}
+
+function legacyCategoryName(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  if (!value || typeof value !== "object") return [];
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() ? [name.trim()] : [];
 }
 
 function registerEmailSecrets(context: Parameters<PlatformPlugin["register"]>[0]): void {

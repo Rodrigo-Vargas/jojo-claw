@@ -28,7 +28,6 @@ export interface EmailEvaluation {
 }
 
 export type EmailAssistantContext = Parameters<PlatformPlugin["register"]>[0];
-export type EmailCategory = { name: string; action: string };
 export type CategoryAction = { category: string; actions: string[] };
 export interface GmailEmail {
   messageId: string;

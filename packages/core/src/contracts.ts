@@ -86,6 +86,8 @@ export interface PluginSettingDefinition {
   description?: string
   type: PluginSettingType
   defaultValue: PluginSettingValue
+  /** Converts a persisted value from an earlier setting shape, if possible. */
+  migrateLegacyValue?(value: unknown): PluginSettingValue | undefined
   /** An API path that returns `{ options: string[] }` for a selectable string setting. */
   optionsEndpoint?: string
 }

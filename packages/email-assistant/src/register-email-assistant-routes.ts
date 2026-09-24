@@ -107,8 +107,8 @@ function confirmCategory(
   if (!name) throw new Error("category must not be empty.");
   const categories = emailCategories(context.getSetting("categories"));
   const existing = matchingCategory(name, categories);
-  if (!existing) context.setSetting("categories", [...categories, { name, action: "" }]);
-  const category = existing?.name ?? name;
+  if (!existing) context.setSetting("categories", [...categories, name]);
+  const category = existing ?? name;
   const actions = categoryActions(context.getSetting("category-actions"));
   const suggestedActions = actionsForCategory(category, actions);
   if (body.messageId) {
