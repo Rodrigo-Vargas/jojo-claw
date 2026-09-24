@@ -2,20 +2,14 @@ import { type FormEvent, useEffect, useState } from "react";
 import type {
   JsonSettingValue,
   PluginSettingValue,
-  PluginSettingType,
 } from "@jojo-claw/core";
-
-interface ManagedSetting {
-  pluginId: string;
-  id: string;
-  name: string;
-  description?: string;
-  type: PluginSettingType;
-  defaultValue: PluginSettingValue;
-  value: PluginSettingValue;
-  optionsEndpoint?: string;
-}
-interface GmailLabel { id: string; name: string }
+import {
+  CategoryActionList,
+  emailCategoryNames,
+  isCategoryActionSetting,
+  type GmailLabel,
+} from "./CategoryActionList.js";
+import { SettingEditor, type ManagedSetting } from "./SettingEditor.js";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ManagedSetting[]>([]);
@@ -60,34 +54,12 @@ export default function SettingsPage() {
           .map((setting) => [keyOf(setting), jsonListInputs(setting.value)]),
       ),
     );
-    void loadSelectOptions(payload.result.settings);
+    void loadSelectOptions(payload.result.settings, setSelectOptions);
   }
   useEffect(() => {
     void load().catch((cause: unknown) => setError(messageOf(cause)));
-    void loadGmailLabels();
+    void loadGmailLabels(setGmailLabels);
   }, []);
-  async function loadGmailLabels() {
-    try {
-      const response = await fetch("/api/plugins/email-assistant/labels");
-      const payload = (await response.json()) as { result?: GmailLabel[] };
-      if (response.ok && payload.result) setGmailLabels(payload.result);
-    } catch {
-      /* Email actions can still be configured after Gmail is connected. */
-    }
-  }
-  async function loadSelectOptions(loadedSettings: ManagedSetting[]) {
-    const selectable = loadedSettings.filter((setting) => setting.optionsEndpoint);
-    const choices = await Promise.all(selectable.map(async (setting) => {
-      const response = await fetch(setting.optionsEndpoint ?? "");
-      if (!response.ok) return [keyOf(setting), []] as const;
-      const payload = (await response.json()) as { options?: unknown };
-      const options = Array.isArray(payload.options)
-        ? payload.options.filter((option): option is string => typeof option === "string")
-        : [];
-      return [keyOf(setting), options] as const;
-    }));
-    setSelectOptions(Object.fromEntries(choices));
-  }
   async function save(
     event: FormEvent<HTMLFormElement>,
     setting: ManagedSetting,
@@ -115,27 +87,6 @@ export default function SettingsPage() {
   function updateValue(setting: ManagedSetting, value: PluginSettingValue) {
     setValues({ ...values, [keyOf(setting)]: value });
   }
-  function updateListItem(
-    setting: ManagedSetting,
-    index: number,
-    value: string,
-  ) {
-    const key = keyOf(setting);
-    const updated = [...(listInputs[key] ?? [])];
-    updated[index] = value;
-    setListInputs({ ...listInputs, [key]: updated });
-  }
-  function addListItem(setting: ManagedSetting) {
-    const key = keyOf(setting);
-    setListInputs({ ...listInputs, [key]: [...(listInputs[key] ?? []), "{}"] });
-  }
-  function removeListItem(setting: ManagedSetting, index: number) {
-    const key = keyOf(setting);
-    const items = (listInputs[key] ?? []).filter(
-      (_, itemIndex) => itemIndex !== index,
-    );
-    setListInputs({ ...listInputs, [key]: items });
-  }
   return (
     <section className="conversation settings-page">
       <div className="intro">
@@ -151,218 +102,85 @@ export default function SettingsPage() {
       {settings.length === 0 && !error && (
         <p className="muted">No installed plugin has registered settings.</p>
       )}
-      <div className="settings-list">
-        {settings.map((setting) => (
-          <form
-            className="setting-card"
-            key={keyOf(setting)}
-            onSubmit={(event) => void save(event, setting)}
-          >
-            <div>
-              <strong>{setting.name}</strong>
-              <code>
-                {setting.pluginId}/{setting.id}
-              </code>
-              {setting.description && <p>{setting.description}</p>}
-            </div>
-            {isCategoryActionSetting(setting) ? (
-              <CategoryActionList
-                categories={emailCategoryNames(settings)}
-                labels={gmailLabels}
-                setting={setting}
-                values={listInputs[keyOf(setting)] ?? []}
-                onChange={(items) =>
-                  setListInputs({ ...listInputs, [keyOf(setting)]: items })
-                }
-              />
-            ) : setting.type === "list" ? (
-              <div className="setting-list-editor">
-                <span>JSON items</span>
-                {(listInputs[keyOf(setting)] ?? []).map((item, index) => (
-                  <div
-                    className="setting-list-item"
-                    key={`${keyOf(setting)}:${index}`}
-                  >
-                    <textarea
-                      aria-label={`${setting.name} item ${index + 1}`}
-                      value={item}
-                      onChange={(event) =>
-                        updateListItem(setting, index, event.target.value)
-                      }
-                    />
-                    <button
-                      onClick={() => removeListItem(setting, index)}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button
-                  className="add-list-item"
-                  onClick={() => addListItem(setting)}
-                  type="button"
-                >
-                  Add item
-                </button>
-              </div>
-            ) : (
-              <label>
-                {setting.type === "boolean" ? (
-                  <>
-                    <input
-                      checked={values[keyOf(setting)] === true}
-                      onChange={(event) =>
-                        updateValue(setting, event.target.checked)
-                      }
-                      type="checkbox"
-                    />{" "}
-                    Enabled
-                  </>
-                ) : setting.type === "string-list" ? (
-                  <>
-                    <span>One value per line</span>
-                    <textarea
-                      value={stringListValue(values[keyOf(setting)])}
-                      onChange={(event) =>
-                        updateValue(
-                          setting,
-                          parseStringList(event.target.value),
-                        )
-                      }
-                    />
-                  </>
-                ) : setting.type === "json" ? (
-                  <>
-                    <span>JSON value</span>
-                    <textarea
-                      value={jsonInputs[keyOf(setting)] ?? ""}
-                      onChange={(event) =>
-                        setJsonInputs({
-                          ...jsonInputs,
-                          [keyOf(setting)]: event.target.value,
-                        })
-                      }
-                    />
-                  </>
-                ) : setting.optionsEndpoint ? (
-                  <>
-                    <span>Installed model</span>
-                    <select
-                      value={String(values[keyOf(setting)] ?? "")}
-                      onChange={(event) => updateValue(setting, event.target.value)}
-                    >
-                      <option value="">Select a model</option>
-                      {(selectOptions[keyOf(setting)] ?? []).map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
-                  <>
-                    <span>Value</span>
-                    <input
-                      type={setting.type === "number" ? "number" : "text"}
-                      value={String(values[keyOf(setting)] ?? "")}
-                      onChange={(event) =>
-                        updateValue(
-                          setting,
-                          setting.type === "number"
-                            ? Number(event.target.value)
-                            : event.target.value,
-                        )
-                      }
-                    />
-                  </>
-                )}
-              </label>
-            )}
-            <button type="submit">Save</button>
-          </form>
-        ))}
-      </div>
+      <SettingsList settings={settings} values={values} jsonInputs={jsonInputs}
+        listInputs={listInputs} gmailLabels={gmailLabels} selectOptions={selectOptions}
+        onJsonInputsChange={setJsonInputs} onListInputsChange={setListInputs}
+        onSave={save} onValueChange={updateValue} />
       {message && <div className="notice success">{message}</div>}
       {error && <div className="notice error">{error}</div>}
     </section>
   );
 }
-function isCategoryActionSetting(setting: ManagedSetting): boolean {
-  return setting.pluginId === "email-assistant" && setting.id === "category-actions";
-}
-function emailCategoryNames(settings: ManagedSetting[]): string[] {
-  const setting = settings.find(
-    (item) => item.pluginId === "email-assistant" && item.id === "categories",
-  );
-  if (!setting || !Array.isArray(setting.value)) return [];
-  return setting.value.flatMap((item) => {
-    if (typeof item === "string" && item.trim()) return [item.trim()];
-    if (!item || typeof item !== "object") return [];
-    const name = (item as { name?: unknown }).name;
-    return typeof name === "string" && name.trim() ? [name.trim()] : [];
-  });
-}
-function CategoryActionList({
-  categories, labels, setting, values, onChange,
+
+function SettingsList({
+  settings, values, jsonInputs, listInputs, gmailLabels, selectOptions,
+  onJsonInputsChange, onListInputsChange, onSave, onValueChange,
 }: {
-  categories: string[]; labels: GmailLabel[]; setting: ManagedSetting;
-  values: string[]; onChange(items: string[]): void;
+  settings: ManagedSetting[];
+  values: Record<string, PluginSettingValue>;
+  jsonInputs: Record<string, string>;
+  listInputs: Record<string, string[]>;
+  gmailLabels: GmailLabel[];
+  selectOptions: Record<string, string[]>;
+  onJsonInputsChange(inputs: Record<string, string>): void;
+  onListInputsChange(inputs: Record<string, string[]>): void;
+  onSave(event: FormEvent<HTMLFormElement>, setting: ManagedSetting): Promise<void>;
+  onValueChange(setting: ManagedSetting, value: PluginSettingValue): void;
 }) {
-  const actions = categoryActionMap(values);
-  function setActions(category: string, selectedActions: string[]) {
-    const next = new Map(actions);
-    if (selectedActions.length) next.set(category, selectedActions);
-    else next.delete(category);
-    onChange([...next].map(([name, value]) =>
-      JSON.stringify({ category: name, actions: value }),
-    ));
-  }
-  return <div className="setting-list-editor">
-    <span>Suggested actions by category</span>
-    {categories.map((category) => <label key={category}>
-      <span>{category}</span>
-      <select multiple aria-label={`${setting.name} ${category}`}
-        value={actions.get(category) ?? []}
-        onChange={(event) => setActions(
-          category,
-          [...event.currentTarget.selectedOptions].map((option) => option.value),
-        )}>
-        <option value="mark-read">Mark as read</option>
-        <option value="star">Star</option>
-        <option value="trash">Move to trash</option>
-        {labels.map((label) => (
-          <option key={label.id} value={`archive:${label.name}`}>
-            Archive in {label.name}
-          </option>
-        ))}
-      </select>
-    </label>)}
-    {categories.length === 0 && <span>Add email categories before mapping actions.</span>}
+  return <div className="settings-list">
+    {settings.map((setting) => <form className="setting-card" key={keyOf(setting)}
+      onSubmit={(event) => void onSave(event, setting)}>
+      <div>
+        <strong>{setting.name}</strong>
+        <code>{setting.pluginId}/{setting.id}</code>
+        {setting.description && <p>{setting.description}</p>}
+      </div>
+      {isCategoryActionSetting(setting.pluginId, setting.id) ? (
+        <CategoryActionList categories={emailCategoryNames(settings)} labels={gmailLabels}
+          settingName={setting.name} values={listInputs[keyOf(setting)] ?? []}
+          onChange={(items) => onListInputsChange({ ...listInputs, [keyOf(setting)]: items })} />
+      ) : (
+        <SettingEditor jsonInput={jsonInputs[keyOf(setting)] ?? ""}
+          listInput={listInputs[keyOf(setting)] ?? []}
+          selectOptions={selectOptions[keyOf(setting)] ?? []} setting={setting}
+          value={values[keyOf(setting)]}
+          onJsonChange={(value) => onJsonInputsChange({ ...jsonInputs, [keyOf(setting)]: value })}
+          onListChange={(items) => onListInputsChange({ ...listInputs, [keyOf(setting)]: items })}
+          onValueChange={(value) => onValueChange(setting, value)} />
+      )}
+      <button type="submit">Save</button>
+    </form>)}
   </div>;
 }
-function categoryActionMap(values: string[]): Map<string, string[]> {
-  return new Map(values.flatMap((value) => {
-    try {
-      const entry = JSON.parse(value) as {
-        category?: unknown; action?: unknown; actions?: unknown;
-      };
-      const actions = Array.isArray(entry.actions) ? entry.actions : [entry.action];
-      return typeof entry.category === "string" &&
-        actions.every((action) => typeof action === "string")
-        ? [[entry.category, actions] as [string, string[]]] : [];
-    } catch { return []; }
+
+async function loadGmailLabels(onLabels: (labels: GmailLabel[]) => void) {
+  try {
+    const response = await fetch("/api/plugins/email-assistant/labels");
+    const payload = (await response.json()) as { result?: GmailLabel[] };
+    if (response.ok && payload.result) onLabels(payload.result);
+  } catch {
+    /* Email actions can still be configured after Gmail is connected. */
+  }
+}
+
+async function loadSelectOptions(
+  loadedSettings: ManagedSetting[],
+  onOptions: (options: Record<string, string[]>) => void,
+) {
+  const selectable = loadedSettings.filter((setting) => setting.optionsEndpoint);
+  const choices = await Promise.all(selectable.map(async (setting) => {
+    const response = await fetch(setting.optionsEndpoint ?? "");
+    if (!response.ok) return [keyOf(setting), []] as const;
+    const payload = (await response.json()) as { options?: unknown };
+    const options = Array.isArray(payload.options)
+      ? payload.options.filter((option): option is string => typeof option === "string")
+      : [];
+    return [keyOf(setting), options] as const;
   }));
+  onOptions(Object.fromEntries(choices));
 }
 function keyOf(setting: ManagedSetting): string {
   return `${setting.pluginId}:${setting.id}`;
-}
-function stringListValue(value: PluginSettingValue | undefined): string {
-  return Array.isArray(value) ? value.join("\n") : "";
-}
-function parseStringList(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 function jsonListInputs(value: PluginSettingValue): string[] {
   return Array.isArray(value)
