@@ -16,15 +16,18 @@ export interface EmailEvaluation {
 
 /** Displays one evaluated email and its available category and Gmail actions.
  * Example: `<EmailEvaluationCard email={email} confirming={false} applying={false}
- * retrying={false} onConfirm={save} onApply={apply} onRetry={retry} />`.
+ * deleting={false} retrying={false} onConfirm={save} onApply={apply} onDelete={remove}
+ * onRetry={retry} />`.
  */
 export function EmailEvaluationCard(props: {
   email: EmailEvaluation;
   confirming: boolean;
   applying: boolean;
+  deleting: boolean;
   retrying: boolean;
   onConfirm(email: EmailEvaluation): void;
   onApply(email: EmailEvaluation): void;
+  onDelete(email: EmailEvaluation): void;
   onRetry(email: EmailEvaluation): void;
 }) {
   const { email } = props;
@@ -41,7 +44,19 @@ export function EmailEvaluationCard(props: {
     <RetryClassification {...props} />
     <SuggestedActions {...props} />
     <PromptProposal email={email} />
+    <DeleteEvaluation {...props} />
   </article>;
+}
+
+function DeleteEvaluation(props: {
+  email: EmailEvaluation;
+  deleting: boolean;
+  onDelete(email: EmailEvaluation): void;
+}) {
+  return <button className="delete-email-evaluation" disabled={props.deleting}
+    onClick={() => props.onDelete(props.email)} type="button">
+    {props.deleting ? "Removing…" : "Remove"}
+  </button>;
 }
 
 function RetryClassification(props: {

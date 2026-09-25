@@ -20,6 +20,7 @@ export default function EmailAssistantPage() {
   const [retryingClassification, setRetryingClassification] = useState<string>();
   const [confirmingCategory, setConfirmingCategory] = useState<string>();
   const [applyingAction, setApplyingAction] = useState<string>();
+  const [deletingEvaluation, setDeletingEvaluation] = useState<string>();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   useEffect(() => {
@@ -192,6 +193,27 @@ export default function EmailAssistantPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed."); }
     finally { setApplyingAction(undefined); }
   }
+  async function deleteEvaluation(email: EmailEvaluation) {
+    if (!window.confirm(`Remove “${email.subject || "this email"}” from saved evaluations?`))
+      return;
+    setDeletingEvaluation(email.messageId);
+    setError(undefined);
+    try {
+      const response = await fetch("/api/plugins/email-assistant/delete-evaluation", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId: email.messageId }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Email removal failed.");
+      setEvaluations((current) => current?.filter(
+        (item) => item.messageId !== email.messageId,
+      ));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Email removal failed.");
+    } finally {
+      setDeletingEvaluation(undefined);
+    }
+  }
 
   return (
     <section className="conversation email-assistant-page">
@@ -254,9 +276,11 @@ export default function EmailAssistantPage() {
                   email={email}
                   confirming={confirmingCategory === email.messageId}
                   applying={applyingAction === email.messageId}
+                  deleting={deletingEvaluation === email.messageId}
                   retrying={retryingClassification === email.messageId}
                   onConfirm={confirmCategory}
                   onApply={applyAction}
+                  onDelete={deleteEvaluation}
                   onRetry={retryClassification}
                   key={email.messageId}
                 />

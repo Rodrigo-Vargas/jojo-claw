@@ -56,6 +56,14 @@ export class EmailAssistantRepository {
     this.storage.set(evaluationKey(evaluation.messageId), evaluation);
   }
 
+  /** Removes an email evaluation and its associated classification conversation.
+   * Example: `repository.deleteEvaluation("gmail-message-id")`.
+   */
+  deleteEvaluation(messageId: string): void {
+    this.storage.delete(evaluationKey(messageId));
+    this.storage.delete(categoryConversationKey(messageId));
+  }
+
   confirmEvaluationCategory(
     messageId: string,
     category: string,
@@ -94,7 +102,7 @@ export class EmailAssistantRepository {
   }
 
   saveCategoryConversationId(messageId: string, conversationId: number | undefined): void {
-    if (conversationId !== undefined)
+    if (conversationId !== undefined && this.getEvaluation(messageId))
       this.storage.set(categoryConversationKey(messageId), conversationId);
   }
 

@@ -104,6 +104,16 @@ function registerEvaluationRoutes(input: {
   });
   context.registerRoute({
     method: "POST",
+    path: "/delete-evaluation",
+    async handle({ body }) {
+      if (!isDeleteEvaluationInput(body))
+        throw new Error("messageId must be a non-empty string.");
+      repository.deleteEvaluation(body.messageId);
+      return { messageId: body.messageId };
+    },
+  });
+  context.registerRoute({
+    method: "POST",
     path: "/apply-action",
     async handle({ body }) {
       return applyCategoryActions({ context, request, repository, service, body });
@@ -178,4 +188,8 @@ function isActionInput(value: unknown): value is { messageId: string } {
 
 function isRetryClassificationInput(value: unknown): value is { messageId: string } {
   return isActionInput(value) && value.messageId.trim().length > 0;
+}
+
+function isDeleteEvaluationInput(value: unknown): value is { messageId: string } {
+  return isRetryClassificationInput(value);
 }

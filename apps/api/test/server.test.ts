@@ -478,6 +478,13 @@ describe('Jojo Claw HTTP API', () => {
       ])
       const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
       assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed', categoryPromptProposal: 'Description 3' })
+      const removal = await fetch(`${baseUrl}/api/plugins/email-assistant/delete-evaluation`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messageId: 'two' }),
+      })
+      assert.deepEqual(await removal.json(), { result: { messageId: 'two' } })
+      const afterRemoval = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
+      assert.deepEqual((await afterRemoval.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['one'])
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
       assert.deepEqual(categories?.value, ['Personal', 'Newsletters', 'Work'])
