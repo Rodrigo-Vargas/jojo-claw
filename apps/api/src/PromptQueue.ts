@@ -64,6 +64,22 @@ export class PromptQueue {
     return this.schedule(entry, work, responseFor);
   }
 
+  /** Re-runs a completed request without creating a new conversation.
+   * Example: `queue.replay(12, generate, responseFor)` keeps conversation 12.
+   */
+  replay<Result>(
+    id: number, work: () => Promise<Result>, responseFor: (result: Result) => PromptResponse,
+  ): Promise<Result> {
+    const entry = this.entries.find((candidate) => candidate.id === id);
+    if (!entry)
+      throw new Error(`Cannot replay conversation ${id}; expected an existing conversation.`);
+    if (entry.status === "queued" || entry.status === "running")
+      throw new Error(`Cannot replay conversation ${id}; expected a completed conversation.`);
+    resetConversation(entry);
+    this.persist();
+    return this.schedule(entry, work, responseFor);
+  }
+
   snapshot(): PromptQueueEntry[] {
     return this.entries.map(copyEntry);
   }
@@ -215,6 +231,13 @@ export interface PersistedToolCall {
 }
 
 function clearQueueTail(): void {}
+
+function resetConversation(entry: PromptConversation): void {
+  entry.status = "queued";
+  entry.failureReason = undefined;
+  entry.completedAt = undefined;
+  entry.response = undefined;
+}
 
 function copyEntry(entry: PromptQueueEntry): PromptQueueEntry {
   return { id: entry.id, pluginName: entry.pluginName, prompt: entry.prompt, status: entry.status };

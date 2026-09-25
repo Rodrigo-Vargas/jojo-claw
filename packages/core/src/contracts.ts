@@ -42,6 +42,7 @@ export interface GenerateWithToolsInput {
   messages: ToolMessage[]
   tools: ToolDefinition[]
   model?: string
+  retryConversationId?: number
 }
 
 export interface GenerateWithToolsResult extends GenerateTextResult {

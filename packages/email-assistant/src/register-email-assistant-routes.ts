@@ -10,7 +10,7 @@ import {
   withMappedActions,
 } from "./category-settings.js";
 import { applyGmailActions, listGmailLabels } from "./gmail-client.js";
-import { evaluateInbox } from "./inbox-evaluator.js";
+import { evaluateInbox, retryCategoryEvaluation } from "./inbox-evaluator.js";
 import type { EmailAssistantContext } from "./email-types.js";
 import { GoogleConnectionService } from "./services/GoogleConnectionService.js";
 
@@ -93,6 +93,17 @@ function registerEvaluationRoutes(input: {
   });
   context.registerRoute({
     method: "POST",
+    path: "/retry-classification",
+    async handle({ body }) {
+      if (!isRetryClassificationInput(body))
+        throw new Error("messageId must be a non-empty string.");
+      return retryCategoryEvaluation(
+        { context, request, repository, service, categoryQueue }, body.messageId,
+      );
+    },
+  });
+  context.registerRoute({
+    method: "POST",
     path: "/apply-action",
     async handle({ body }) {
       return applyCategoryActions({ context, request, repository, service, body });
@@ -163,4 +174,8 @@ function isConfirmCategoryInput(
 function isActionInput(value: unknown): value is { messageId: string } {
   if (!value || typeof value !== "object") return false;
   return typeof (value as { messageId?: unknown }).messageId === "string";
+}
+
+function isRetryClassificationInput(value: unknown): value is { messageId: string } {
+  return isActionInput(value) && value.messageId.trim().length > 0;
 }

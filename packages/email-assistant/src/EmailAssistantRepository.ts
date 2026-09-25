@@ -8,6 +8,7 @@ import type {
 const connectionKey = "connection";
 const evaluationPrefix = "evaluation:";
 const transactionPrefix = "oauth:";
+const categoryConversationPrefix = "category-conversation:";
 
 export class EmailAssistantRepository {
   constructor(private readonly storage: PluginStorage) {}
@@ -76,6 +77,27 @@ export class EmailAssistantRepository {
     }));
   }
 
+  restartCategoryEvaluation(messageId: string): void {
+    this.updateEvaluation(messageId, (evaluation) => ({
+      ...evaluation,
+      category: undefined,
+      suggestedCategory: undefined,
+      suggestedActions: undefined,
+      categoryPromptProposal: undefined,
+      categoryStatus: "processing",
+      categoryError: undefined,
+    }));
+  }
+
+  categoryConversationId(messageId: string): number | undefined {
+    return this.storage.get<number>(categoryConversationKey(messageId));
+  }
+
+  saveCategoryConversationId(messageId: string, conversationId: number | undefined): void {
+    if (conversationId !== undefined)
+      this.storage.set(categoryConversationKey(messageId), conversationId);
+  }
+
   failCategoryEvaluation(messageId: string, error: string): void {
     this.updateEvaluation(messageId, (evaluation) => ({
       ...evaluation, categoryStatus: "failed", categoryError: error,
@@ -107,6 +129,10 @@ function transactionKey(state: string): string {
 
 function evaluationKey(messageId: string): string {
   return `${evaluationPrefix}${messageId}`;
+}
+
+function categoryConversationKey(messageId: string): string {
+  return `${categoryConversationPrefix}${messageId}`;
 }
 
 function compareEvaluations(left: EmailEvaluation, right: EmailEvaluation): number {

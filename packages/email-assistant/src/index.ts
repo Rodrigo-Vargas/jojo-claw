@@ -92,13 +92,14 @@ function registerEmailPrompts(context: Parameters<PlatformPlugin["register"]>[0]
     id: "email-category-system",
     name: "Email category instructions",
     kind: "system",
-    defaultContent: "Choose the best category using one provided tool call.",
+    defaultContent: "Choose the best category using one provided tool call.\n\n"
+      + "Available categories:\n{{categories}}",
   });
   context.definePrompt({
     id: "email-category",
     name: "Email category template",
     kind: "prompt",
-    defaultContent: "Categories:\n{{categories}}\n\nEmail:\n{{email}}",
+    defaultContent: "Email:\n{{email}}",
   });
 }
 

@@ -29,6 +29,25 @@ export async function evaluateInbox(input: {
   return { evaluations };
 }
 
+/** Re-runs an email's category prompt without re-summarizing it.
+ * Example: `await retryCategoryEvaluation(retryInput, "message-id")`.
+ */
+export async function retryCategoryEvaluation(input: {
+  context: EmailAssistantContext;
+  request: typeof fetch;
+  repository: EmailAssistantRepository;
+  service: GoogleConnectionService;
+  categoryQueue: CategoryEvaluationQueue;
+}, messageId: string): Promise<{ evaluation: EmailEvaluation }> {
+  const evaluation = input.repository.getEvaluation(messageId);
+  if (!evaluation) throw new Error(`Email "${messageId}" was not found.`);
+  if (evaluation.categoryStatus === "processing")
+    throw new Error(`Email "${messageId}" classification is already processing.`);
+  const token = await input.service.accessToken();
+  queueCategoryRetry(input, token, messageId);
+  return { evaluation: input.repository.getEvaluation(messageId) ?? evaluation };
+}
+
 async function unclassifiedMessageIds(
   repository: EmailAssistantRepository,
   request: typeof fetch,
@@ -67,6 +86,31 @@ async function evaluateEmail(
   return evaluation;
 }
 
+function queueCategoryRetry(
+  input: {
+    context: EmailAssistantContext;
+    request: typeof fetch;
+    repository: EmailAssistantRepository;
+    categoryQueue: CategoryEvaluationQueue;
+  },
+  token: string,
+  messageId: string,
+): void {
+  input.repository.restartCategoryEvaluation(messageId);
+  input.categoryQueue.add(async () => {
+    try {
+      const email = await readEmail(input.request, token, messageId);
+      await evaluateCategory(
+        input.context, input.repository, email,
+        input.repository.categoryConversationId(messageId),
+      );
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : "Category evaluation failed.";
+      input.repository.failCategoryEvaluation(messageId, error);
+    }
+  });
+}
+
 function toEvaluation(email: GmailEmail, description: string): EmailEvaluation {
   return {
     messageId: email.messageId,
@@ -86,14 +130,17 @@ async function evaluateCategory(
   context: EmailAssistantContext,
   repository: EmailAssistantRepository,
   email: GmailEmail,
+  retryConversationId?: number,
 ): Promise<void> {
   try {
     const categories = emailCategories(context.getSetting("categories"));
     const response = await context.generateWithTools({
       messages: categoryMessages(context, email, categories),
       tools: categoryTools,
+      retryConversationId,
     });
 
+    repository.saveCategoryConversationId(email.messageId, response.conversationId);
     saveToolCategorySuggestion(repository, email.messageId, response.toolCalls, categories);
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : "Category evaluation failed.";
@@ -107,21 +154,23 @@ function categoryMessages(
   categories: string[],
 ) {
   return [
-    { role: "system" as const, content: context.getPrompt("email-category-system") },
-    { role: "user" as const, content: categoryPrompt(context, email, categories) },
+    { role: "system" as const, content: categorySystemPrompt(context, categories) },
+    { role: "user" as const, content: categoryPrompt(context, email) },
   ];
+}
+
+function categorySystemPrompt(context: EmailAssistantContext, categories: string[]): string {
+  const list = categories.length
+    ? categories.map((category) => `- ${category}`).join("\n")
+    : "(No categories have been configured.)";
+  return interpolateTemplate(context.getPrompt("email-category-system"), { categories: list });
 }
 
 function categoryPrompt(
   context: EmailAssistantContext,
   email: GmailEmail,
-  categories: string[],
 ): string {
-  const list = categories.length
-    ? categories.map((category) => `- ${category}`).join("\n")
-    : "(No categories have been configured.)";
   return interpolateTemplate(context.getPrompt("email-category"), {
-    categories: list,
     email: emailPrompt(context, email),
   });
 }
@@ -200,9 +249,7 @@ function saveExistingSuggestion(
   categories: string[],
 ): void {
   const existing = matchingCategory(category, categories);
-  if (!existing) {
-    throw new Error(`Existing category suggestion "${category}" is not configured.`);
-  }
+  if (!existing) return repository.saveCategorySuggestion(messageId, category, "suggested-new");
   repository.saveCategorySuggestion(messageId, existing, "suggested-existing");
 }
 

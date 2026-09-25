@@ -218,16 +218,23 @@ function mountPlugins(
       generateWithTools: (input) => {
         if (!services.provider.generateWithTools)
           throw new Error("The configured LLM provider does not support tool calling.");
-        let conversationId: number | undefined;
+        let conversationId = input.retryConversationId;
+        const work = async () => ({
+          ...(await services.provider.generateWithTools!({
+            messages: input.messages, tools: input.tools, model: input.model,
+          })), conversationId,
+        });
+        type ToolGeneration = Awaited<ReturnType<NonNullable<LlmProvider["generateWithTools"]>>>;
+        const responseFor = (result: ToolGeneration) => ({
+          text: result.text, model: result.model,
+          toolCalls: result.toolCalls.map(toolCallForConversation),
+        });
+        if (conversationId !== undefined)
+          return services.promptQueue.replay(conversationId, work, responseFor);
         return services.promptQueue.enqueue({
           pluginName: plugin.manifest.name, prompt: promptFromMessages(input.messages),
-          work: async () => ({
-            ...(await services.provider.generateWithTools!(input)), conversationId,
-          }),
-          responseFor: (result) => ({
-            text: result.text, model: result.model,
-            toolCalls: result.toolCalls.map(toolCallForConversation),
-          }),
+          work, responseFor,
+          options: { system: systemFromMessages(input.messages), model: input.model },
           onCreated: (id) => { conversationId = id; },
         });
       },
@@ -272,6 +279,10 @@ function promptFromMessages(messages: { role: string; content: string }[]): stri
     if (message.role === "user") return message.content;
   }
   return "Tool-assisted generation";
+}
+
+function systemFromMessages(messages: { role: string; content: string }[]): string | undefined {
+  return messages.find((message) => message.role === "system")?.content;
 }
 
 function conversationIdFromPath(pathname: string): number | undefined {

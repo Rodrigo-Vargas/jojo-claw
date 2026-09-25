@@ -16,14 +16,16 @@ export interface EmailEvaluation {
 
 /** Displays one evaluated email and its available category and Gmail actions.
  * Example: `<EmailEvaluationCard email={email} confirming={false} applying={false}
- * onConfirm={save} onApply={apply} />`.
+ * retrying={false} onConfirm={save} onApply={apply} onRetry={retry} />`.
  */
 export function EmailEvaluationCard(props: {
   email: EmailEvaluation;
   confirming: boolean;
   applying: boolean;
+  retrying: boolean;
   onConfirm(email: EmailEvaluation): void;
   onApply(email: EmailEvaluation): void;
+  onRetry(email: EmailEvaluation): void;
 }) {
   const { email } = props;
   return <article className="email-evaluation">
@@ -36,9 +38,22 @@ export function EmailEvaluationCard(props: {
     </div>
     <h3>{email.subject || "No subject"}</h3>
     <p>{email.description}</p>
+    <RetryClassification {...props} />
     <SuggestedActions {...props} />
     <PromptProposal email={email} />
   </article>;
+}
+
+function RetryClassification(props: {
+  email: EmailEvaluation;
+  retrying: boolean;
+  onRetry(email: EmailEvaluation): void;
+}) {
+  if (props.email.categoryStatus === "processing") return null;
+  return <button className="email-category suggested" disabled={props.retrying}
+    onClick={() => props.onRetry(props.email)} type="button">
+    {props.retrying ? "Retrying classification…" : "Retry classification"}
+  </button>;
 }
 
 function CategoryIndicator(props: {

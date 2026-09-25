@@ -426,10 +426,38 @@ describe('Jojo Claw HTTP API', () => {
         { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', suggestedCategory: 'Newsletters', categoryStatus: 'suggested-new' },
         { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing' },
       ])
+      const conversationsBeforeRetry = await fetch(`${baseUrl}/api/conversations`)
+      const beforeRetry = await conversationsBeforeRetry.json() as {
+        conversations: Array<{
+          prompt: string;
+          response?: { toolCalls?: unknown[] };
+          system?: string;
+        }>
+      }
+      assert.ok(beforeRetry.conversations.some((conversation) =>
+        conversation.response?.toolCalls
+          && /Available categories:\n- Work\n- Personal/.test(conversation.system ?? '')
+          && !conversation.prompt.startsWith('Categories:'),
+      ))
+      await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'categories', value: ['Personal'] }) })
+      const retried = await fetch(`${baseUrl}/api/plugins/email-assistant/retry-classification`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messageId: 'one' }) })
+      const retryResult = await retried.json() as { result: { evaluation: { categoryStatus: string } } }
+      assert.equal(retried.status, 200)
+      assert.equal(retryResult.result.evaluation.categoryStatus, 'processing')
+      assert.equal(prompts.length, 2)
+      const retriedResults = await waitForCategoryResults(baseUrl)
+      assert.equal(retriedResults.find((email) => email.messageId === 'one')?.categoryStatus, 'suggested-new')
+      assert.equal(toolRequests.length, 3)
+      const conversationsAfterRetry = await fetch(`${baseUrl}/api/conversations`)
+      const afterRetry = await conversationsAfterRetry.json() as { conversations: unknown[] }
+      assert.equal(afterRetry.conversations.length, beforeRetry.conversations.length)
       assert.equal(prompts.length, 2)
       assert.match(prompts[0], /Hello/)
       assert.match(prompts[1], /World/)
-      assert.deepEqual(toolRequests.map((request) => request.tools.map((tool) => tool.name)), [['suggest_new_category', 'confirm_existing_category'], ['suggest_new_category', 'confirm_existing_category']])
+      assert.ok(toolRequests.every((request) =>
+        JSON.stringify(request.tools.map((tool) => tool.name))
+          === JSON.stringify(['suggest_new_category', 'confirm_existing_category']),
+      ))
       const saved = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
       assert.deepEqual((await saved.json() as { result: Array<{ messageId: string }> }).result.map((email) => email.messageId), ['two', 'one'])
       const nextBatch = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluate-inbox`, { method: 'POST' })
@@ -441,7 +469,7 @@ describe('Jojo Claw HTTP API', () => {
       assert.match(prompts[2] ?? '', /Description 2/)
       await fetch(`${baseUrl}/api/plugins/settings/set`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginId: 'email-assistant', id: 'category-actions', value: [{ category: 'Work', actions: ['mark-read', 'trash'] }] }) })
       const workConfirmation = await fetch(`${baseUrl}/api/plugins/email-assistant/confirm-category`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category: 'Work', messageId: 'one' }) })
-      assert.deepEqual(await workConfirmation.json(), { result: { category: 'Work', suggestedActions: ['mark-read', 'trash'] } })
+      assert.deepEqual(await workConfirmation.json(), { result: { category: 'Work', suggestedActions: ['mark-read', 'trash'], promptProposal: 'Description 4' } })
       const applied = await fetch(`${baseUrl}/api/plugins/email-assistant/apply-action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messageId: 'one' }) })
       assert.deepEqual((await applied.json() as { result: { actions: string[] } }).result.actions, ['mark-read', 'trash'])
       assert.deepEqual(gmailActions, [
@@ -452,7 +480,7 @@ describe('Jojo Claw HTTP API', () => {
       assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed', categoryPromptProposal: 'Description 3' })
       const settings = await fetch(`${baseUrl}/api/plugins/settings/list`, { method: 'POST' })
       const categories = (await settings.json() as { result: { settings: Array<{ id: string; value: unknown }> } }).result.settings.find((setting) => setting.id === 'categories')
-      assert.deepEqual(categories?.value, ['Work', 'Personal', 'Newsletters'])
+      assert.deepEqual(categories?.value, ['Personal', 'Newsletters', 'Work'])
     } finally { server.close(); await once(server, 'close'); rmSync(secretFile.directory, { recursive: true, force: true }) }
   })
 

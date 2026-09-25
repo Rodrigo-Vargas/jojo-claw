@@ -12,6 +12,7 @@ interface ConversationTurn {
     toolCalls?: Array<{ name: string; arguments: Record<string, unknown>; result?: string }>;
   };
   failureReason?: string;
+  system?: string;
 }
 
 interface ConversationResponse {
@@ -120,6 +121,9 @@ export function ConversationPage({
 
 function ConversationTurnView({ turn }: { turn: ConversationTurn }) {
   return <>
+    {turn.system && <article className="message system-message">
+      <strong>System</strong><p>{turn.system}</p>
+    </article>}
     <article className="message user-message">
       <strong>You</strong><p>{turn.prompt}</p>
     </article>

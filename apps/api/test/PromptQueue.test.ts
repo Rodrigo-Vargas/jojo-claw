@@ -73,6 +73,19 @@ describe("PromptQueue", () => {
       failureReason: undefined,
     }]);
   });
+
+  it("replays a successful generation without creating another conversation", async () => {
+    const queue = new PromptQueue(new MemoryPluginStorage());
+    await queue.enqueue({
+      pluginName: "Text generation", prompt: "Try again.",
+      work: successfulGeneration, responseFor: responseFromText,
+    });
+
+    await queue.replay(1, successfulGeneration, responseFromText);
+
+    assert.equal(queue.conversations().length, 1);
+    assert.equal(queue.conversation(1)?.status, "succeeded");
+  });
 });
 
 async function failGeneration(): Promise<{ text: string; model: string }> {
