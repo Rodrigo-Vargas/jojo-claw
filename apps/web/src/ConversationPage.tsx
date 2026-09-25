@@ -22,11 +22,17 @@ interface ConversationResponse {
 /** Shows a persisted model conversation and permits the next user turn.
  * Example: `<ConversationPage conversationId={12} />`.
  */
-export function ConversationPage({ conversationId }: { conversationId: number }) {
+export function ConversationPage({
+  conversationId, onRetry,
+}: {
+  conversationId: number;
+  onRetry: (id: number) => Promise<void>;
+}) {
   const [conversation, setConversation] = useState<ConversationResponse>();
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string>();
   const [isSending, setIsSending] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   useEffect(() => {
     void loadConversation(conversationId, setConversation, setError);
@@ -49,6 +55,18 @@ export function ConversationPage({ conversationId }: { conversationId: number })
       setError(cause instanceof Error ? cause.message : "Could not send message.");
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function retryFailedConversation(): Promise<void> {
+    setIsRetrying(true);
+    setError(undefined);
+    try {
+      await onRetry(conversationId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not retry conversation.");
+    } finally {
+      setIsRetrying(false);
     }
   }
 
@@ -89,6 +107,11 @@ export function ConversationPage({ conversationId }: { conversationId: number })
             </button>
           </div>
         </form>
+      )}
+      {latest.status === "failed" && (
+        <button type="button" onClick={() => void retryFailedConversation()} disabled={isRetrying}>
+          {isRetrying ? "Retrying…" : "Retry"}
+        </button>
       )}
       {error && <div className="notice error">{error}</div>}
     </section>

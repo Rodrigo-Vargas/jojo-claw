@@ -41,9 +41,27 @@ export class PromptQueue {
   enqueue<Result>(job: PromptQueueJob<Result>): Promise<Result> {
     const entry = this.createEntry(job.pluginName, job.prompt, job.options ?? {});
     job.onCreated?.(entry.id);
-    const task = this.tail.then(() => this.run(entry, job.work, job.responseFor));
-    this.tail = task.then(clearQueueTail, clearQueueTail);
-    return task;
+    return this.schedule(entry, job.work, job.responseFor);
+  }
+
+  /** Places a failed request at the end of the queue without changing its identity.
+   * Example: `queue.retry(12, generate, responseFor)` reuses conversation 12.
+   */
+  retry<Result>(
+    id: number, work: () => Promise<Result>, responseFor: (result: Result) => PromptResponse,
+  ): Promise<Result> {
+    const entry = this.entries.find((candidate) => candidate.id === id);
+    if (!entry) {
+      throw new Error(`Cannot retry conversation ${id}; expected an existing conversation.`);
+    }
+    if (entry.status !== "failed")
+      throw new Error(`Cannot retry conversation ${id}; expected status failed.`);
+    entry.status = "queued";
+    entry.failureReason = undefined;
+    entry.completedAt = undefined;
+    entry.response = undefined;
+    this.persist();
+    return this.schedule(entry, work, responseFor);
   }
 
   snapshot(): PromptQueueEntry[] {
@@ -114,6 +132,16 @@ export class PromptQueue {
       this.persist();
       throw error;
     }
+  }
+
+  private schedule<Result>(
+    entry: PromptConversation,
+    work: () => Promise<Result>,
+    responseFor: (result: Result) => PromptResponse,
+  ): Promise<Result> {
+    const task = this.tail.then(() => this.run(entry, work, responseFor));
+    this.tail = task.then(clearQueueTail, clearQueueTail);
+    return task;
   }
 
   private finishInterruptedConversations(): void {

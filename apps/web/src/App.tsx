@@ -81,13 +81,24 @@ export function App() {
         <Suspense fallback={<p className="muted">Loading page…</p>}>
           {conversationId === undefined
             ? <Page />
-            : <ConversationPage conversationId={conversationId} />}
+            : <ConversationPage conversationId={conversationId} onRetry={retryAndNavigate} />}
         </Suspense>
       </main>
 
-      <PromptQueueWidget onSelect={(id) => navigate(`/conversations/${id}`)} />
+      <PromptQueueWidget
+        onSelect={(id) => navigate(`/conversations/${id}`)}
+        onRetry={retryAndNavigate}
+      />
     </div>
   );
+
+  async function retryAndNavigate(conversationId: number): Promise<void> {
+    const response = await fetch(`/api/conversations/${conversationId}/retry`, { method: "POST" });
+    const payload = await response.json() as { conversationId?: number; error?: string };
+    if (!response.ok || payload.conversationId === undefined)
+      throw new Error(payload.error ?? "Could not retry conversation.");
+    navigate(`/conversations/${payload.conversationId}`);
+  }
 }
 
 function conversationIdFromPath(path: string): number | undefined {

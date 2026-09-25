@@ -19,7 +19,12 @@ interface PromptQueueResponse {
 /** Renders the local model queue, refreshed while users work.
  * Example: `<PromptQueueWidget />`.
  */
-export function PromptQueueWidget({ onSelect }: { onSelect: (id: number) => void }) {
+export function PromptQueueWidget({
+  onSelect, onRetry,
+}: {
+  onSelect: (id: number) => void;
+  onRetry: (id: number) => Promise<void>;
+}) {
   const [items, setItems] = useState<PromptQueueItem[]>([]);
   const [error, setError] = useState<string>();
   const previousActiveCount = useRef<number>();
@@ -53,7 +58,8 @@ export function PromptQueueWidget({ onSelect }: { onSelect: (id: number) => void
       {items.length === 0 && <p className="muted">No prompts in the queue.</p>}
       <div className="queue-list">
         {items.slice().reverse().map((item) => (
-          <QueueItem item={item} key={item.id} onSelect={onSelect} />
+          <QueueItem item={item} key={item.id} onSelect={onSelect} onRetry={onRetry}
+            setError={setError} />
         ))}
       </div>
       {error && <div className="notice error">{error}</div>}
@@ -61,19 +67,52 @@ export function PromptQueueWidget({ onSelect }: { onSelect: (id: number) => void
   );
 }
 
-function QueueItem({ item, onSelect }: { item: PromptQueueItem; onSelect: (id: number) => void }) {
+function QueueItem({
+  item, onSelect, onRetry, setError,
+}: {
+  item: PromptQueueItem;
+  onSelect: (id: number) => void;
+  onRetry: (id: number) => Promise<void>;
+  setError: (error: string | undefined) => void;
+}) {
   return (
-    <button className="queue-item" onClick={() => onSelect(item.id)}>
-      <span className={`queue-state ${item.status}`} aria-hidden="true" />
-      <div>
-        <div className="queue-item-heading">
-          <strong>{item.pluginName}</strong>
-          <span>{statusLabel(item.status)}</span>
+    <div className="queue-item-row">
+      <button className="queue-item" onClick={() => onSelect(item.id)}>
+        <span className={`queue-state ${item.status}`} aria-hidden="true" />
+        <div>
+          <div className="queue-item-heading">
+            <strong>{item.pluginName}</strong>
+            <span>{statusLabel(item.status)}</span>
+          </div>
+          <p title={item.prompt}>{promptPreview(item.prompt)}</p>
         </div>
-        <p title={item.prompt}>{promptPreview(item.prompt)}</p>
-      </div>
-    </button>
+      </button>
+      {item.status === "failed" && (
+        <RetryButton conversationId={item.id} onRetry={onRetry} setError={setError} />
+      )}
+    </div>
   );
+}
+
+function RetryButton({
+  conversationId, onRetry, setError,
+}: {
+  conversationId: number;
+  onRetry: (id: number) => Promise<void>;
+  setError: (error: string | undefined) => void;
+}) {
+  const [isRetrying, setIsRetrying] = useState(false);
+  async function retry(): Promise<void> {
+    setIsRetrying(true);
+    setError(undefined);
+    try { await onRetry(conversationId); }
+    catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not retry conversation.");
+    }
+    finally { setIsRetrying(false); }
+  }
+  return <button className="queue-retry" type="button" onClick={() => void retry()}
+    disabled={isRetrying}>{isRetrying ? "Retrying…" : "Retry"}</button>;
 }
 
 async function loadPromptQueue(

@@ -144,6 +144,46 @@ describe('Jojo Claw HTTP API', () => {
     } finally { server.close(); await once(server, 'close') }
   })
 
+  it('requeues a failed prompt without creating another conversation', async () => {
+    const requests: string[] = []
+    const provider: LlmProvider = {
+      generate: async (input) => {
+        requests.push(input.prompt)
+        if (requests.length === 1) throw new Error('Provider unavailable.')
+        return { text: 'Retry succeeded', model: 'test-model' }
+      },
+    }
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      const initial = await fetch(`${baseUrl}/api/plugins/text/generate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Try this again.' }),
+      })
+      assert.equal(initial.status, 502)
+      const retry = await fetch(`${baseUrl}/api/conversations/1/retry`, { method: 'POST' })
+      assert.equal(retry.status, 202)
+      assert.deepEqual(await retry.json(), { conversationId: 1 })
+      await new Promise<void>((resolve) => setTimeout(resolve, 5))
+      const retried = await fetch(`${baseUrl}/api/conversations/1`)
+      const payload = await retried.json() as {
+        conversation: {
+          status: string; prompt: string; createdAt: string; completedAt: string;
+          response?: { text: string };
+        }
+      }
+      assert.deepEqual(payload.conversation, {
+        status: 'succeeded', prompt: 'Try this again.',
+        response: { text: 'Retry succeeded', model: 'test-model' }, id: 1,
+        pluginName: 'Text generation', createdAt: payload.conversation.createdAt,
+        completedAt: payload.conversation.completedAt,
+      })
+      assert.deepEqual(requests, ['Try this again.', 'Try this again.'])
+    } finally { server.close(); await once(server, 'close') }
+  })
+
   it('persists completed prompt conversations for later retrieval', async () => {
     const storage = temporarySecretFile()
     const provider: LlmProvider = {

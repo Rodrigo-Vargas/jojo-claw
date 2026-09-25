@@ -89,6 +89,11 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       if (platformResponse)
         return sendJson(response, platformResponse.status, platformResponse.body);
       const conversationId = conversationIdFromPath(url.pathname);
+      const retryConversationId = retryConversationIdFromPath(url.pathname);
+      if (request.method === "POST" && retryConversationId !== undefined)
+        return retryConversation(request, response, {
+          conversationId: retryConversationId, promptQueue, provider,
+        });
       if (request.method === "POST" && conversationId !== undefined)
         return sendConversationMessage(request, response, {
           conversationId, promptQueue, provider,
@@ -274,6 +279,11 @@ function conversationIdFromPath(pathname: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+function retryConversationIdFromPath(pathname: string): number | undefined {
+  const match = /^\/api\/conversations\/(\d+)\/retry$/.exec(pathname);
+  return match ? Number(match[1]) : undefined;
+}
+
 function isConversationMessageInput(value: unknown): value is { message: string } {
   return typeof value === "object" && value !== null
     && typeof (value as { message?: unknown }).message === "string"
@@ -317,6 +327,39 @@ interface ConversationMessageServices {
   promptQueue: PromptQueue;
   provider: LlmProvider;
 }
+
+/** Requeues the same failed generation without changing its conversation ID.
+ * Example: `POST /api/conversations/12/retry` returns conversation 12.
+ */
+async function retryConversation(
+  _request: IncomingMessage, response: ServerResponse, services: ConversationMessageServices,
+): Promise<void> {
+  const failed = services.promptQueue.conversation(services.conversationId);
+  if (!failed) return sendJson(response, 404, { error: "Conversation not found." });
+  if (failed.status !== "failed")
+    return sendJson(response, 409, { error: "Only failed conversations can be retried." });
+  queueRetry(failed, services);
+  return sendJson(response, 202, { conversationId: failed.id });
+}
+
+function queueRetry(failed: PromptConversation, services: ConversationMessageServices): void {
+  const history = services.promptQueue.conversationHistory(failed.id) ?? [];
+  const retry = services.promptQueue.retry(
+    failed.id,
+    () => services.provider.generate({
+      prompt: retryPrompt(history, failed), system: failed.system, model: failed.model,
+    }),
+    (generation) => ({ text: generation.text, model: generation.model }),
+  );
+  void retry.catch(ignoreRetryFailure);
+}
+
+function retryPrompt(history: PromptConversation[], failed: PromptConversation): string {
+  if (failed.parentConversationId === undefined) return failed.prompt;
+  return conversationPrompt(history.slice(0, -1), failed.prompt);
+}
+
+function ignoreRetryFailure(): void {}
 
 function isPluginRouteRedirect(value: unknown): value is PluginRouteRedirect {
   return (

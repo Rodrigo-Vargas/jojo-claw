@@ -53,10 +53,34 @@ describe("PromptQueue", () => {
     }]);
     assert.equal(typeof queue.conversations()[0]?.completedAt, "string");
   });
+
+  it("requeues a failed generation without creating another conversation", async () => {
+    const queue = new PromptQueue(new MemoryPluginStorage());
+    await assert.rejects(queue.enqueue({
+      pluginName: "Text generation", prompt: "Try again.",
+      work: failGeneration, responseFor: responseFromText,
+    }));
+
+    const retried = queue.retry(1, successfulGeneration, responseFromText);
+
+    assert.equal(queue.conversations()[0]?.status, "queued");
+    await assert.doesNotReject(retried);
+    assert.deepEqual(queue.conversations(), [{
+      id: 1, pluginName: "Text generation", prompt: "Try again.", status: "succeeded",
+      createdAt: queue.conversations()[0]?.createdAt,
+      completedAt: queue.conversations()[0]?.completedAt,
+      response: { text: "Recovered.", model: "test-model", toolCalls: undefined },
+      failureReason: undefined,
+    }]);
+  });
 });
 
 async function failGeneration(): Promise<{ text: string; model: string }> {
   throw new Error("Provider unavailable.");
+}
+
+async function successfulGeneration(): Promise<{ text: string; model: string }> {
+  return { text: "Recovered.", model: "test-model" };
 }
 
 function responseFromText(result: { text: string; model: string }): { text: string; model: string } {
