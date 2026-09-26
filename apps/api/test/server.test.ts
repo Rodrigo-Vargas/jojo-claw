@@ -423,8 +423,8 @@ describe('Jojo Claw HTTP API', () => {
       assert.equal(started.result.evaluations.length, 2)
       assert.ok(started.result.evaluations.some((email) => email.categoryStatus === 'processing'))
       assert.deepEqual(await waitForCategoryResults(baseUrl), [
-        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', suggestedCategory: 'Newsletters', categoryStatus: 'suggested-new' },
-        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing' },
+        { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', suggestedCategory: 'Newsletters', categoryStatus: 'suggested-new', categoryConversationId: 4 },
+        { messageId: 'one', from: 'alice@example.com', subject: 'First', receivedAt: '1970-01-01T00:00:00.000Z', description: 'Description 1', suggestedCategory: 'Work', categoryStatus: 'suggested-existing', categoryConversationId: 2 },
       ])
       const conversationsBeforeRetry = await fetch(`${baseUrl}/api/conversations`)
       const beforeRetry = await conversationsBeforeRetry.json() as {
@@ -477,7 +477,7 @@ describe('Jojo Claw HTTP API', () => {
         { url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/one/trash', body: undefined },
       ])
       const confirmed = await fetch(`${baseUrl}/api/plugins/email-assistant/evaluations`)
-      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed', categoryPromptProposal: 'Description 3' })
+      assert.deepEqual((await confirmed.json() as { result: Array<{ messageId: string; category?: string; suggestedCategory?: string }> }).result.find((email) => email.messageId === 'two'), { messageId: 'two', from: 'bob@example.com', subject: 'Second', receivedAt: '1970-01-01T00:00:01.000Z', description: 'Description 2', category: 'Newsletters', categoryStatus: 'confirmed', categoryPromptProposal: 'Description 3', categoryConversationId: 4 })
       const removal = await fetch(`${baseUrl}/api/plugins/email-assistant/delete-evaluation`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messageId: 'two' }),

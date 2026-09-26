@@ -12,6 +12,7 @@ export interface EmailEvaluation {
   suggestedActions?: string[];
   actionAppliedAt?: string;
   categoryPromptProposal?: string;
+  categoryConversationId?: number;
 }
 
 /** Displays one evaluated email and its available category and Gmail actions.
@@ -44,8 +45,17 @@ export function EmailEvaluationCard(props: {
     <RetryClassification {...props} />
     <SuggestedActions {...props} />
     <PromptProposal email={email} />
+    <CategoryConversation email={email} />
     <DeleteEvaluation {...props} />
   </article>;
+}
+
+function CategoryConversation({ email }: { email: EmailEvaluation }) {
+  if (email.categoryConversationId === undefined) return null;
+  return <a className="email-conversation-link"
+    href={`/conversations/${email.categoryConversationId}`}>
+    View classification chat
+  </a>;
 }
 
 function DeleteEvaluation(props: {

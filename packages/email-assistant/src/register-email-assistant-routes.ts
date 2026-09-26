@@ -76,7 +76,9 @@ function registerEvaluationRoutes(input: {
     async handle() {
       const actions = categoryActions(context.getSetting("category-actions"));
       return repository.listEvaluations()
-        .map((evaluation) => withMappedActions(evaluation, actions));
+        .map((evaluation) => evaluationWithConversation(
+          repository, withMappedActions(evaluation, actions),
+        ));
     },
   });
   context.registerRoute({
@@ -119,6 +121,16 @@ function registerEvaluationRoutes(input: {
       return applyCategoryActions({ context, request, repository, service, body });
     },
   });
+}
+
+function evaluationWithConversation(
+  repository: EmailAssistantRepository,
+  evaluation: ReturnType<typeof withMappedActions>,
+): ReturnType<typeof withMappedActions> & { categoryConversationId?: number } {
+  const categoryConversationId = repository.categoryConversationId(evaluation.messageId);
+  return categoryConversationId === undefined
+    ? evaluation
+    : { ...evaluation, categoryConversationId };
 }
 
 async function confirmCategory(
