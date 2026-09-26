@@ -258,6 +258,52 @@ describe('Jojo Claw HTTP API', () => {
     } finally { server.close(); await once(server, 'close') }
   })
 
+  it('edits a past prompt, discards its later turns, and regenerates its response', async () => {
+    const prompts: string[] = []
+    const provider: LlmProvider = {
+      generate: async (input) => {
+        prompts.push(input.prompt)
+        return { text: `Answer ${prompts.length}`, model: 'test-model' }
+      },
+    }
+    const server = createJojoClawServer({ provider, databasePath: ':memory:' }).listen(0)
+    await once(server, 'listening')
+    const address = server.address(); assert(address && typeof address !== 'string')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    try {
+      await fetch(`${baseUrl}/api/plugins/text/generate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'First question' }),
+      })
+      await fetch(`${baseUrl}/api/conversations/1`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'Follow-up question' }),
+      })
+
+      const edited = await fetch(`${baseUrl}/api/conversations/1/edit`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Edited question' }),
+      })
+
+      assert.equal(edited.status, 200)
+      assert.equal(prompts[2], 'Edited question')
+      const transcript = await fetch(`${baseUrl}/api/conversations/1`)
+      const payload = await transcript.json() as {
+        conversation: {
+          id: number; prompt: string; createdAt: string; completedAt: string;
+          response?: { text: string };
+        }
+        messages: Array<{ id: number }>
+      }
+      assert.deepEqual(payload.messages.map((message) => message.id), [1])
+      assert.deepEqual(payload.conversation, {
+        id: 1, pluginName: 'Text generation', prompt: 'Edited question', status: 'succeeded',
+        createdAt: payload.conversation.createdAt, completedAt: payload.conversation.completedAt,
+        response: { text: 'Answer 3', model: 'test-model' },
+      })
+    } finally { server.close(); await once(server, 'close') }
+  })
+
   it('returns tool output to the model before returning its final answer', async () => {
     const toolRequests: GenerateWithToolsInput[] = []
     const provider: LlmProvider = {

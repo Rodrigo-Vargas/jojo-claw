@@ -80,6 +80,26 @@ export class PromptQueue {
     return this.schedule(entry, work, responseFor);
   }
 
+  /** Replaces one completed prompt, discards its follow-ups, and generates it again.
+   * Example: `queue.replacePrompt(12, "Use one sentence.", generate, responseFor)`.
+   */
+  replacePrompt<Result>(
+    id: number, prompt: string, work: () => Promise<Result>,
+    responseFor: (result: Result) => PromptResponse,
+  ): Promise<Result> {
+    const entry = this.entries.find((candidate) => candidate.id === id);
+    if (!entry)
+      throw new Error(`Cannot edit conversation ${id}; expected an existing conversation.`);
+    const discarded = this.descendantsOf(id);
+    if (isActive(entry) || discarded.some(isActive))
+      throw new Error(`Cannot edit conversation ${id}; expected completed conversation history.`);
+    this.entries = this.entries.filter((candidate) => !discarded.includes(candidate));
+    entry.prompt = prompt;
+    resetConversation(entry);
+    this.persist();
+    return this.schedule(entry, work, responseFor);
+  }
+
   snapshot(): PromptQueueEntry[] {
     return this.entries.map(copyEntry);
   }
@@ -188,6 +208,22 @@ export class PromptQueue {
     }
     return ids;
   }
+
+  private descendantsOf(id: number): PromptConversation[] {
+    const descendantIds = new Set<number>([id]);
+    let foundNewDescendant = true;
+    while (foundNewDescendant) {
+      foundNewDescendant = false;
+      for (const entry of this.entries) {
+        if (entry.parentConversationId === undefined
+          || !descendantIds.has(entry.parentConversationId)
+          || descendantIds.has(entry.id)) continue;
+        descendantIds.add(entry.id);
+        foundNewDescendant = true;
+      }
+    }
+    return this.entries.filter((entry) => entry.id !== id && descendantIds.has(entry.id));
+  }
 }
 
 function hasRequestedToolCall(entry: PromptConversation, callId: string): boolean {
@@ -237,6 +273,10 @@ function resetConversation(entry: PromptConversation): void {
   entry.failureReason = undefined;
   entry.completedAt = undefined;
   entry.response = undefined;
+}
+
+function isActive(entry: PromptConversation): boolean {
+  return entry.status === "queued" || entry.status === "running";
 }
 
 function copyEntry(entry: PromptQueueEntry): PromptQueueEntry {

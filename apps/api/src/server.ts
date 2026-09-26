@@ -88,16 +88,8 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       );
       if (platformResponse)
         return sendJson(response, platformResponse.status, platformResponse.body);
-      const conversationId = conversationIdFromPath(url.pathname);
-      const retryConversationId = retryConversationIdFromPath(url.pathname);
-      if (request.method === "POST" && retryConversationId !== undefined)
-        return retryConversation(request, response, {
-          conversationId: retryConversationId, promptQueue, provider,
-        });
-      if (request.method === "POST" && conversationId !== undefined)
-        return sendConversationMessage(request, response, {
-          conversationId, promptQueue, provider,
-        });
+      if (await handleConversationPost(request, response, url.pathname, { promptQueue, provider }))
+        return;
       const route = routes.get(`${request.method ?? "GET"} ${url.pathname}`);
       if (route) {
         const result = await route.handle({
@@ -120,7 +112,9 @@ export function createJojoClawServer(options: JojoClawOptions = {}) {
       return sendJson(
         response,
         message.includes("required") || message.includes("must be strings")
+          || message.includes("must be a non-empty string")
           ? 400
+          : message.startsWith("Cannot edit conversation") ? 409
           : 502,
         { error: message },
       );
@@ -295,10 +289,21 @@ function retryConversationIdFromPath(pathname: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+function editConversationIdFromPath(pathname: string): number | undefined {
+  const match = /^\/api\/conversations\/(\d+)\/edit$/.exec(pathname);
+  return match ? Number(match[1]) : undefined;
+}
+
 function isConversationMessageInput(value: unknown): value is { message: string } {
   return typeof value === "object" && value !== null
     && typeof (value as { message?: unknown }).message === "string"
     && (value as { message: string }).message.trim().length > 0;
+}
+
+function isConversationPromptInput(value: unknown): value is { prompt: string } {
+  return typeof value === "object" && value !== null
+    && typeof (value as { prompt?: unknown }).prompt === "string"
+    && (value as { prompt: string }).prompt.trim().length > 0;
 }
 
 function conversationPrompt(history: PromptConversation[], message: string): string {
@@ -337,6 +342,53 @@ interface ConversationMessageServices {
   conversationId: number;
   promptQueue: PromptQueue;
   provider: LlmProvider;
+}
+
+async function handleConversationPost(
+  request: IncomingMessage, response: ServerResponse, pathname: string,
+  services: Omit<ConversationMessageServices, "conversationId">,
+): Promise<boolean> {
+  if (request.method !== "POST") return false;
+  const retryId = retryConversationIdFromPath(pathname);
+  if (retryId !== undefined) {
+    await retryConversation(request, response, { ...services, conversationId: retryId });
+    return true;
+  }
+  const editId = editConversationIdFromPath(pathname);
+  if (editId !== undefined) {
+    await editConversationPrompt(request, response, { ...services, conversationId: editId });
+    return true;
+  }
+  const conversationId = conversationIdFromPath(pathname);
+  if (conversationId === undefined) return false;
+  await sendConversationMessage(request, response, { ...services, conversationId });
+  return true;
+}
+
+/** Replaces a past user prompt and removes every later turn in that branch.
+ * Example: `POST /api/conversations/12/edit` with `{ prompt: "Clarify this." }`.
+ */
+async function editConversationPrompt(
+  request: IncomingMessage, response: ServerResponse, services: ConversationMessageServices,
+): Promise<void> {
+  const input = await readJson<unknown>(request);
+  if (!isConversationPromptInput(input)) throw new Error("prompt must be a non-empty string.");
+  const edited = services.promptQueue.conversation(services.conversationId);
+  if (!edited) return sendJson(response, 404, { error: "Conversation not found." });
+  const history = services.promptQueue.conversationHistory(edited.id) ?? [];
+  const result = await services.promptQueue.replacePrompt(
+    edited.id,
+    input.prompt,
+    () => services.provider.generate({
+      prompt: edited.parentConversationId === undefined
+        ? input.prompt
+        : conversationPrompt(history.slice(0, -1), input.prompt),
+      system: edited.system,
+      model: edited.model,
+    }),
+    (generation) => ({ text: generation.text, model: generation.model }),
+  );
+  sendJson(response, 200, { result });
 }
 
 /** Requeues the same failed generation without changing its conversation ID.

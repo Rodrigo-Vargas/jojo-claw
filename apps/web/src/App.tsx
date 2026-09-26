@@ -81,7 +81,8 @@ export function App() {
         <Suspense fallback={<p className="muted">Loading page…</p>}>
           {conversationId === undefined
             ? <Page />
-            : <ConversationPage conversationId={conversationId} onRetry={retryAndNavigate} />}
+            : <ConversationPage conversationId={conversationId} onRetry={retryAndNavigate}
+              onSelectConversation={(id) => navigate(`/conversations/${id}`)} />}
         </Suspense>
       </main>
 
