@@ -57,7 +57,7 @@ export function PromptQueueWidget({
       </div>
       {items.length === 0 && <p className="muted">No prompts in the queue.</p>}
       <div className="queue-list">
-        {items.slice().reverse().map((item) => (
+        {items.map((item) => (
           <QueueItem item={item} key={item.id} onSelect={onSelect} onRetry={onRetry}
             setError={setError} />
         ))}

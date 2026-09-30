@@ -101,7 +101,7 @@ export class PromptQueue {
   }
 
   snapshot(): PromptQueueEntry[] {
-    return this.entries.map(copyEntry);
+    return this.entries.slice().sort(compareQueueDisplayOrder).map(copyEntry);
   }
 
   conversations(): PromptConversation[] {
@@ -281,6 +281,14 @@ function isActive(entry: PromptConversation): boolean {
 
 function copyEntry(entry: PromptQueueEntry): PromptQueueEntry {
   return { id: entry.id, pluginName: entry.pluginName, prompt: entry.prompt, status: entry.status };
+}
+
+function compareQueueDisplayOrder(left: PromptConversation, right: PromptConversation): number {
+  const leftIsActive = left.status === "queued" || left.status === "running";
+  const rightIsActive = right.status === "queued" || right.status === "running";
+  if (leftIsActive !== rightIsActive) return leftIsActive ? -1 : 1;
+  if (leftIsActive) return left.id - right.id;
+  return (right.completedAt ?? "").localeCompare(left.completedAt ?? "") || right.id - left.id;
 }
 
 function copyConversation(entry: PromptConversation): PromptConversation {

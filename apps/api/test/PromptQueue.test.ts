@@ -86,6 +86,37 @@ describe("PromptQueue", () => {
     assert.equal(queue.conversations().length, 1);
     assert.equal(queue.conversation(1)?.status, "succeeded");
   });
+
+  it("replaces a prompt and removes its descendant conversations", async () => {
+    const queue = new PromptQueue(new MemoryPluginStorage());
+    await queue.enqueue({
+      pluginName: "Text generation", prompt: "Original", work: successfulGeneration,
+      responseFor: responseFromText,
+    });
+    await queue.enqueue({
+      pluginName: "Text generation", prompt: "Follow-up", work: successfulGeneration,
+      responseFor: responseFromText, options: { parentConversationId: 1 },
+    });
+
+    await queue.replacePrompt(1, "Edited", successfulGeneration, responseFromText);
+
+    assert.deepEqual(queue.conversations().map((conversation) => ({
+      id: conversation.id, prompt: conversation.prompt, status: conversation.status,
+    })), [{ id: 1, prompt: "Edited", status: "succeeded" }]);
+  });
+
+  it("lists completed conversations by most recently processed first", () => {
+    const storage = new MemoryPluginStorage();
+    storage.set("conversations", [
+      completedConversation(1, "2026-09-24T12:00:00.000Z"),
+      completedConversation(2, "2026-09-24T12:02:00.000Z"),
+      completedConversation(3, "2026-09-24T12:01:00.000Z"),
+    ]);
+
+    const queue = new PromptQueue(storage);
+
+    assert.deepEqual(queue.snapshot().map((entry) => entry.id), [2, 3, 1]);
+  });
 });
 
 async function failGeneration(): Promise<{ text: string; model: string }> {
@@ -107,5 +138,12 @@ function activeConversation(): PromptConversation {
     prompt: "Resume this.",
     status: "running",
     createdAt: "2026-09-24T12:00:00.000Z",
+  };
+}
+
+function completedConversation(id: number, completedAt: string): PromptConversation {
+  return {
+    ...activeConversation(), id, status: "succeeded", completedAt,
+    response: { text: "Done.", model: "test-model" },
   };
 }
